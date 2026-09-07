@@ -48,3 +48,19 @@ def test_missing_llm_preflight_preserves_report(tmp_path, monkeypatch):
     assert any('LLM 서버' in x.value for x in app.error)
     assert any('보존할 기존 분석' in x.value for x in app.markdown)
     assert len(list(tmp_path.glob('cases/*/runs/*/state.json'))) == 1
+
+
+def test_live_benchmark_view_reads_saved_opinions_without_running_analysis(tmp_path, monkeypatch):
+    monkeypatch.setenv('CREDIT_WORKSPACE', str(tmp_path))
+    from credit_review.models import Judgement
+    h = Harness.create(tmp_path/'benchmarks', 'full', date(2026,4,7), demo_sources(), DemoClient(), 'DEMO')
+    h.state.factors['F24'].judgement = Judgement(summary='실시간 표시할 상환능력 의견', evidence_ids=['demo_cash'])
+    h.save()
+    before = {p:p.stat().st_mtime_ns for p in h.store.path.rglob('*') if p.is_file()}
+    app = AppTest.from_file(APP)
+    app.query_params['benchmark'] = 'latest'
+    app.run(timeout=30)
+    assert not app.exception
+    assert any('실시간 표시할 상환능력 의견' in x.value for x in app.markdown)
+    assert not app.button and not app.code and not app.json
+    assert before == {p:p.stat().st_mtime_ns for p in h.store.path.rglob('*') if p.is_file()}

@@ -78,6 +78,25 @@ def show_report(h):
         st.caption("아직 작성된 보고서가 없습니다.")
 
 st.set_page_config(page_title="기업여신 심사보고서", layout="wide")
+if st.query_params.get('benchmark') == 'latest':
+    from credit_review.live_view import latest_snapshot
+    @st.fragment(run_every=1)
+    def live_benchmark_report():
+        snapshot = latest_snapshot(ROOT)
+        if snapshot is None:
+            st.info('보고서 작성을 준비하고 있습니다. 결과는 자동으로 표시됩니다.')
+            return
+        if snapshot['active']:
+            st.info('심사보고서 작성 중 · 생성되는 의견이 자동으로 표시됩니다.')
+        elif snapshot['finished']:
+            st.success('심사보고서 작성이 완료되었습니다.')
+        else:
+            st.warning('이번 실행이 종료되었습니다. 현재까지 작성된 의견을 표시합니다.')
+        st.markdown(snapshot['report'])
+        if not snapshot['opinions']:
+            st.caption('자료를 분석하고 있습니다. 첫 의견을 기다리는 중입니다.')
+    live_benchmark_report()
+    st.stop()
 saved = sorted(ROOT.glob("cases/*/runs/*/state.json"), key=lambda p: p.stat().st_mtime_ns, reverse=True)
 if "harness" not in st.session_state and saved:
     try:

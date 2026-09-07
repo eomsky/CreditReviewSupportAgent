@@ -22,7 +22,11 @@ def group_context(worker, ids):
         context['available_actions'] = [a for a in context['available_actions'] if a not in ('plan', 'reframe')]
         if worker.state.factors[fid].reframes < 3 and 'search' not in context['available_actions']:
             context['available_actions'].append('search')  # requires a changed inquiry after stalled retrieval
-        for source in context.pop('sources')[:2]:
+        focused_sources = context.pop('sources')
+        # Preserve explicitly requested bodies; otherwise a successful read of
+        # more than two sources silently disappears from the next input.
+        selected_sources = [s for i, s in enumerate(focused_sources) if i < 2 or s.get('read_complete')]
+        for source in selected_sources:
             source_limit = getattr(worker, 'source_excerpt_chars', 1200)
             if not source.get('read_complete') and len(source['text']) > source_limit:
                 source['text'] = source['text'][:source_limit]

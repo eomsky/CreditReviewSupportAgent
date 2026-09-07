@@ -40,11 +40,19 @@ def main():
     h.save()
     print('BENCHMARK_RUN', h.store.path, flush=True)
     last = monotonic()
+    milestone_saved = False
     stage, error, first_token = 'analysis', None, None
     try:
         with run_lease(h):
             for event in analyse_grouped(h, list(FACTORS), concurrency=2, metrics=metrics,
                                         time_budget=args.hard_timeout):
+                if not milestone_saved and monotonic()-metrics.started >= 60:
+                    atomic_json(h.store.path/'milestone_60.json', {
+                        'elapsed_seconds':monotonic()-metrics.started,
+                        'judgements':sum(bool(f.judgement) for f in h.state.factors.values()),
+                        'metrics':metrics.snapshot(), 'stage':'analysis',
+                        'note':'First analysis event at or after 60 seconds; excludes preflight and upload/OCR'})
+                    milestone_saved = True
                 if monotonic()-last >= 10:
                     print(json.dumps({'seconds':round(monotonic()-metrics.started,1),
                         'judgements':sum(bool(f.judgement) for f in h.state.factors.values()),

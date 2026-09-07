@@ -189,6 +189,12 @@ class ColabClient:
         references(judgement['calculation_ids'], context.get('calculations',{}))
         references(judgement['requirements']['additionalProperties'], evidence)
         references(schema['$defs']['Dataset']['properties']['cell_sources']['items']['additionalProperties'], evidence)
+        from .batch_protocol import pair_dataset_schema, unpack_dataset_rows
+        pair_dataset_schema(schema)
+        # Only block rereads when the complete body is actually in this prompt.
+        complete_ids = {sid for sid, source in context.get('sources', {}).items()
+                        if source.get('read_complete') and not source.get('excerpt_only')}
+        readable = sorted(set(evidence) - complete_ids)
         payloads = {'search':'query','read':'source_ids',
                     'dataset':'dataset','calculate':'calculation','reuse':'reuse_dataset_ids','conclude':'judgement'}
         choices = []
@@ -212,6 +218,11 @@ class ColabClient:
                 if name not in factor.get('available_actions', payloads):
                     continue
                 branch = deepcopy(choice)
+                if name == 'read':
+                    if not readable:
+                        continue
+                    branch['properties']['source_ids']['minItems'] = 1
+                    references(branch['properties']['source_ids'], readable)
                 # First turn defines the inquiry AND takes a useful action.
                 # A stalled lookup requires an explicit changed inquiry.
                 if not state.get('inquiry') or (name == 'search' and state.get('retrieval_stalls', 0) >= 2):
@@ -222,9 +233,9 @@ class ColabClient:
                               'action':{'anyOf':branches}},
                 'required':['factor_id','action']})
         schema['$defs']['FactorAction'] = {'anyOf':factor_choices}
-        return self.complete(prompt, context, schema,
+        return unpack_dataset_rows(self.complete(prompt, context, schema,
             request_options={'chat_template_kwargs':{'enable_thinking':False}, 'response_format':None,
-                             'structured_outputs':{'json':schema, 'disable_any_whitespace':True}})
+                             'structured_outputs':{'json':schema, 'disable_any_whitespace':True}}))
 
     def stream_report(self, context):
         prompt = ('확보된 분석을 기업여신 심사보고서 본문으로 편집한다. 한국어 Markdown 문단과 필요한 표만 출력한다. '
