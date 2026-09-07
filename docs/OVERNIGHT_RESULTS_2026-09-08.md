@@ -136,7 +136,7 @@ criteria to obtain a two-minute completion number.
 5. Once these checks pass, compare end-to-end fresh multi-PDF runs and cached
    employee interactions with identical work and documented latency distributions.
 
-Final code regression: 126 tests passed. The regenerated three-cell server
+Final code regression: 128 tests passed. The regenerated three-cell server
 notebook compiles and pins the same model revision as the adapters; it writes a
 private recovery command and redacts the API key in displayed startup errors.
 An entirely new Colab runtime installation was not repeated during this window.
@@ -147,3 +147,25 @@ until the 6,000-token cap. The server did log first-shape JIT latency, which is
 also retained in the audit. The subsequent base run completed on that same
 server. This is additional evidence against promoting this adapter, not proof
 that all LoRA configurations degrade quality.
+
+## Actual upload-screen check
+
+At code `134a88b`, the PDF was uploaded through the normal workbench, with a new
+case name. The screen confirmed that its cached document preparation was ready
+before analysis. The saved run completed all 30 judgements and final synthesis
+in 85.58 seconds of internal processing, using 9 LLM calls; its first-report
+metric was 13.59 seconds. The UTC observation immediately before clicking was
+21:22:00, and completion was saved at 21:23:30.992 (about 91 seconds apart).
+This is not a precise browser instrumentation measurement. Intermediate content
+and the final completion banner were visually observed.
+
+The normal UI therefore functions after inference restoration. The generated
+content still contains the material semantic defects described above and is
+not promoted as an accepted credit review. Its source PDF and full case archive
+are preserved separately. A subsequent presentation-only change limits visible
+progress questions to two so the status block does not obscure the report.
+
+Archive verification also exposed an incorrect-root call that produced an empty
+ZIP. It was not uploaded as a valid backup. The packer now rejects missing case
+directories and empty selections, and supports explicit single-case archives.
+The corrected UI archive restores 67 files with the original case path.

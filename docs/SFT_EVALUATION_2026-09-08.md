@@ -133,3 +133,11 @@ foundation dataframe failed provenance validation. First-shape server compilatio
 also occurred, but does not explain the repeated content. Base on the same server
 then completed 30 factors and synthesis in 91.20 seconds. The app remains on base;
 this adapter is retained solely for explicit testing and recovery.
+
+The train-only refinement's longest complete tokenized record was 4,800 tokens.
+The latest cached benchmark used individual prompts of 10,684–28,824 tokens for its
+foundation and review stages. This observed distribution difference, together
+with the runtime's dataframe/provenance contracts, should be represented in
+future training and evaluation. It is a hypothesis to investigate, not an
+isolated causal explanation of the repetition or semantic errors. Preserved test
+responses must not become the next training targets.
