@@ -81,9 +81,34 @@ class ColabClient:
     def next_action(self, context: dict) -> str:
         prompt = (Path(__file__).parent / "prompts" / "factor.md").read_text(encoding="utf-8")
         schema = Action.model_json_schema()
-        allowed = context.get("available_actions")
-        if allowed:
-            schema["properties"]["action"]["enum"] = allowed
+        allowed = list(context.get("available_actions", schema["properties"]["action"]["enum"]))
+        # Constrain reference fields to actual IDs, never inferred labels/placeholders.
+        if "state" in context:
+            state = context["state"]
+            evidence = state.get("evidence_ids", [])
+            readable = sorted({s["id"] for s in context.get("sources", [])} | set(evidence))
+            datasets = state.get("dataset_ids", [])
+            calculations = state.get("calculation_ids", [])
+            reusable = list(context.get("shared_datasets", {}))
+            def references(array_schema, ids):
+                if ids:
+                    array_schema["items"] = {"type": "string", "enum": ids}
+                else:
+                    array_schema.pop("minItems", None)
+                    array_schema["maxItems"] = 0
+            references(schema["properties"]["source_ids"], readable)
+            references(schema["properties"]["reuse_dataset_ids"], reusable)
+            references(schema["$defs"]["Calculation"]["properties"]["dataset_ids"], datasets)
+            judgement = schema["$defs"]["Judgement"]["properties"]
+            references(judgement["evidence_ids"], evidence)
+            references(judgement["calculation_ids"], calculations)
+            references(judgement["requirements"]["additionalProperties"], evidence)
+            cells = schema["$defs"]["Dataset"]["properties"]["cell_sources"]["items"]["additionalProperties"]
+            references(cells, evidence)
+            unavailable = {action for action, ids in (("read", readable), ("dataset", evidence),
+                           ("calculate", datasets), ("reuse", reusable)) if not ids}
+            allowed = [action for action in allowed if action not in unavailable]
+        schema["properties"]["action"]["enum"] = allowed
         return self.complete(prompt + "\nJSON schema:\n" + json.dumps(schema, ensure_ascii=False), context, schema)
 
     def stream_report(self, context):

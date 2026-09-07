@@ -117,3 +117,17 @@ def test_existing_inquiry_cannot_request_another_plan(tmp_path, monkeypatch):
     client.next_action(context)
     assert 'plan' not in received['properties']['action']['enum']
     assert 'reframe' in received['properties']['action']['enum']
+
+def test_generated_schema_only_accepts_real_reference_ids(monkeypatch):
+    from credit_review.llm import ColabClient
+    client = object.__new__(ColabClient)
+    received = {}
+    def complete(system, context, schema):
+        received.update(schema)
+        return '{}'
+    monkeypatch.setattr(client, 'complete', complete)
+    client.next_action({'state':{'evidence_ids':['page_1'], 'dataset_ids':[], 'calculation_ids':[]},
+        'sources':[{'id':'page_1'}], 'available_actions':['read','calculate','conclude']})
+    assert received['properties']['source_ids']['items']['enum'] == ['page_1']
+    assert received['$defs']['Dataset']['properties']['cell_sources']['items']['additionalProperties']['items']['enum'] == ['page_1']
+    assert 'calculate' not in received['properties']['action']['enum']
