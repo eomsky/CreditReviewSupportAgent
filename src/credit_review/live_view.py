@@ -14,10 +14,13 @@ class ReadOnlyArtifacts:
         return json.loads((self.path/'artifacts'/f'{identifier(aid)}.json').read_text(encoding='utf-8'))
 
 
-def latest_snapshot(root):
+def latest_snapshot(root, run_id=None):
     paths = list((root/'benchmarks'/'cases'/'full'/'runs').glob('run_*/state.json'))
     if not paths:
         return None
+    if run_id:
+        paths=[p for p in paths if p.parent.name==identifier(run_id)]
+        if not paths: return None
     path = max(paths, key=lambda p:p.parent.stat().st_mtime_ns)
     state = ReviewState.model_validate_json(path.read_text(encoding='utf-8'))
     h = SimpleNamespace(state=state, store=ReadOnlyArtifacts(path.parent))

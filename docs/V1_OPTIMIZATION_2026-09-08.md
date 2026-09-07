@@ -18,6 +18,7 @@ as full employee upload-to-result latency.
 | eb4275c | 98.316 | 30 | 8 | No | Seven-factor thinking review timed out; rejected |
 | f00e32f | 115.950 | 30 | 9 | Yes | Three-factor thinking review timed out; final synthesis preserved; rejected as optimization |
 | 6f408b2 + thinking budget 512 | 94.418 | 30 | 9 | Yes | Three-factor reasoning review completed in 18.6s, but generated Python referenced a nonexistent column; not selected |
+| 6f408b2 default repeat | 108.365 | 29 | 6 | No | F30 stalled until the 105s analysis deadline; repeatability not achieved |
 
 Fresh native PDF preparation was measured separately: 277 pages, 1,435,077 bytes,
 1,345 source segments; extraction 88.438 seconds, indexing 0.876 seconds,

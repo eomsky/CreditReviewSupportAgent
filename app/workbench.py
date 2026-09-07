@@ -91,7 +91,7 @@ if st.query_params.get('benchmark') == 'latest':
     from credit_review.live_view import latest_snapshot
     @st.fragment(run_every=1)
     def live_benchmark_report():
-        snapshot = latest_snapshot(ROOT)
+        snapshot = latest_snapshot(ROOT, st.query_params.get('run'))
         if snapshot is None:
             st.info('보고서 작성을 준비하고 있습니다. 결과는 자동으로 표시됩니다.')
             return
