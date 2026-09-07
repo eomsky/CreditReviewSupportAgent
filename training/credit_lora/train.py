@@ -149,7 +149,7 @@ def main():
         callback=Progress(stage,stage_deadline)
         args=TrainingArguments(output_dir=str(stage_dir),per_device_train_batch_size=1,
             per_device_eval_batch_size=1,gradient_accumulation_steps=a.gradient_accumulation,
-            learning_rate=a.learning_rate,weight_decay=.01,warmup_ratio=.03,max_steps=steps,
+            learning_rate=a.learning_rate,weight_decay=.01,warmup_steps=max(1,round(steps*.03)),max_steps=steps,
             bf16=True,tf32=True,gradient_checkpointing=True,
             gradient_checkpointing_kwargs={'use_reentrant':False},optim='adamw_torch',
             logging_steps=1,save_strategy='steps',save_steps=a.checkpoint_steps,
