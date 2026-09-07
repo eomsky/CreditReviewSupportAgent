@@ -23,8 +23,8 @@ class BoundColumn(Model):
 class BoundFoundation(Model):
     entity: str
     scope: Literal['CONSOLIDATED','SEPARATE','UNKNOWN']
-    period_column: str
-    columns: list[BoundColumn] = Field(min_length=1,max_length=8)
+    period_cells: list[CellRef] = Field(min_length=1,max_length=3)
+    columns: list[BoundColumn] = Field(min_length=1,max_length=7)
     after_dataset: DatasetCalculation | None = None
     limitations: list[str] = Field(default_factory=list)
 
@@ -77,12 +77,15 @@ def literal_value(text,dtype):
 
 
 def materialize(bound,matrices):
-    count=len(bound.columns[0].cells)
+    count=len(bound.period_cells)
     if any(len(column.cells)!=count for column in bound.columns):
         raise ValueError('Every selected column must cover the same periods')
-    rows=[{} for _ in range(count)]
-    refs=[{} for _ in range(count)]
-    for column in bound.columns:
+    period=BoundColumn(name='기간',dtype='string',cells=bound.period_cells)
+    if any(c.name=='기간' for c in bound.columns):
+        raise ValueError('Period cells must be declared separately from numeric columns')
+    columns=[period]+bound.columns
+    rows=[{} for _ in range(count)]; refs=[{} for _ in range(count)]
+    for column in columns:
         for i,cell in enumerate(column.cells):
             if cell.source_id not in matrices:
                 raise ValueError('Cell reference must identify a loaded table')
@@ -92,6 +95,6 @@ def materialize(bound,matrices):
             rows[i][column.name]=literal_value(matrix[cell.row][cell.column],column.dtype)
             refs[i][column.name]=[cell.source_id]
     return Dataset(name='공통 재무자료',description='LLM-selected source cells copied without arithmetic',
-                   entity=bound.entity,scope=bound.scope,value_type='ACTUAL',period_column=bound.period_column,
-                   columns=[{'name':c.name,'dtype':c.dtype,'unit':c.unit,'description':c.description} for c in bound.columns],
+                   entity=bound.entity,scope=bound.scope,value_type='ACTUAL',period_column='기간',
+                   columns=[{'name':c.name,'dtype':c.dtype,'unit':c.unit,'description':c.description} for c in columns],
                    rows=rows,cell_sources=refs)

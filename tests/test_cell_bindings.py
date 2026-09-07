@@ -3,8 +3,8 @@ from credit_review.cell_bindings import BoundFoundation,index_tables,materialize
 
 
 def bound(row=1,column=1):
-    return BoundFoundation(entity='Example',scope='CONSOLIDATED',period_column='기간',columns=[
-        {'name':'기간','dtype':'string','cells':[{'source_id':'s','row':0,'column':1},{'source_id':'s','row':0,'column':2}]},
+    return BoundFoundation(entity='Example',scope='CONSOLIDATED',
+        period_cells=[{'source_id':'s','row':0,'column':1},{'source_id':'s','row':0,'column':2}],columns=[
         {'name':'부채','dtype':'number','unit':'천원','cells':[
             {'source_id':'s','row':row,'column':column},{'source_id':'s','row':1,'column':2}]}])
 
