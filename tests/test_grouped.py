@@ -12,6 +12,26 @@ from credit_review.retrieval import Retriever
 from test_harness import make
 
 
+def test_invalid_peer_does_not_discard_valid_group_judgement(tmp_path):
+    from credit_review.grouped import apply_group_independently
+    h = make(tmp_path)
+    apply_group_independently(h, ['F02','F04'], json.dumps({'actions':[
+        {'factor_id':'F04','action':{'action':'read','reason':'missing payload'}},
+        {'factor_id':'F02','action':{'action':'conclude','reason':'qualified',
+         'judgement':{'summary':'Limited history', 'evidence_ids':[], 'missing':['history']}}}
+    ]}), 'test')
+    assert h.state.factors['F02'].judgement
+    assert h.state.factors['F04'].error
+    assert not h.state.factors['F04'].judgement
+
+
+def test_nonfinancial_dataset_requires_explicit_reframing(tmp_path):
+    h = make(tmp_path)
+    assert 'dataset' not in h.context('F04')['available_actions']
+    h.state.factors['F04'].reframes = 1
+    assert 'dataset' in h.context('F04')['available_actions']
+
+
 def test_one_batch_produces_two_validated_sections_without_individual_calls(tmp_path):
     class Client:
         calls = 0

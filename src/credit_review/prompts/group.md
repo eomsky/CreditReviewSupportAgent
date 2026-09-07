@@ -10,6 +10,7 @@ plan/reframe의 inquiry에는 question, hypotheses(배열), evidence_tests(배�
 기업 기본정보는 법인명·설립·소재지·사업 정체성을 확인한다. 불필요한 재무표 추출이나 계산은 하지 않는다.
 공통 재무표는 한 요인의 dataset으로 한 번만 생성한다. 검증된 데이터는 다음 응답부터 그룹 전체에 자동 공유된다.
 Dataset의 entity/scope/value_type/columns/period_column/rows/cell_sources를 채운다. rows와 cell_sources 길이는 같고 각 non-null 셀에 실제 원문 ID가 필요하다.
+데이터셋은 현재 계산에 필요한 열과 기간만 추출한다. period_column은 columns에 실제 존재하는 열 이름이어야 하며 N/A 같은 가짜 이름을 쓰지 않는다. 각 rows의 키는 columns의 name과 정확히 일치해야 한다. cell_sources에는 각 행의 기간을 포함한 모든 non-null 셀의 실제 근거 ID를 붙인다. 정성 항목은 계산 필요성이 없다면 데이터셋을 만들지 않는다.
 동일한 표를 요인마다 다시 만들지 않는다. 기존 datasets의 범위·기간·단위가 맞으면 그대로 사용한다.
 계산은 calculate로 Python에 위임한다. dfs[실제 dataset ID]를 사용하며 pd/np 사용 가능, result 변수에 JSON 직렬화 가능한 값을 저장한다.
 실행 전 계산값을 예상해 conclude하지 않는다. 다음 응답의 calculations에 성공한 결과가 있을 때만 이를 해석한다.

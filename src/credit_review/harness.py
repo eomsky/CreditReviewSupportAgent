@@ -55,6 +55,13 @@ class Harness:
                     'section_path': payload.get('section_path', []),
                     'table_structure': meta.get('table_structure'),
                     'columns': [col for el in payload['elements'] for col in el.get('hierarchy', {}).get('columns', [])]}
+        # Bound the source window without deleting the underlying source artifacts.
+        # Mark excerpts explicitly so their absence cannot be interpreted as evidence.
+        for source in sources:
+            if len(source['text']) > 6500:
+                source['text'] = source['text'][:6500]
+                source['excerpt_only'] = True
+                source['omission_note'] = 'Excerpt only; search a focused child passage before using omitted table rows or notes.'
         return {"factor": FACTORS[fid], "state": {**factor.model_dump(mode="json", exclude={"failed_response"}),
                     "failed_response": factor.failed_response[:2000] if factor.failed_response else None},
                 "review_date": str(self.state.review_date), "mode": self.state.mode,
@@ -67,7 +74,7 @@ class Harness:
                     for other in self.state.factors.values() for aid in other.dataset_ids if aid not in factor.dataset_ids},
                 "available_actions": (["plan"] if not factor.inquiry else (["reframe"] if factor.reframes < 3 else []))
                     + ["search", "read", "conclude"]
-                    + (["dataset", "calculate", "reuse"] if fid != 'F01' or factor.reframes else [])}
+                    + (["dataset", "calculate", "reuse"] if fid not in {'F01','F02','F03','F04','F05','F06','F07','F08','F09','F25','F26','F27'} or factor.reframes else [])}
 
     def prepare_evidence(self, fid):
         """Offer initial candidates without spending an LLM round trip on routing.

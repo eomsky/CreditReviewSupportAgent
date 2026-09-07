@@ -39,7 +39,7 @@ def group_context(worker, ids):
     result = {'review_date': str(worker.state.review_date), 'factors': factors,
               'sources': sources, 'datasets': datasets, 'calculations': calculations,
               'related_findings': related, 'shared_datasets': reusable}
-    if len(json.dumps(result, ensure_ascii=False)) > 110000:
+    if len(json.dumps(result, ensure_ascii=False)) > 48000:
         raise ValueError('Group context too large; use focused adaptive review')
     return result
 
@@ -91,6 +91,23 @@ def apply_group_reply(worker, ids, raw, parent, on_status=None):
     return updated
 
 
+def apply_group_independently(worker, ids, raw, parent, on_status=None):
+    """Keep valid peer results when one action has a semantic/schema error."""
+    items = json.loads(raw)['actions']
+    fids = [item['factor_id'] for item in items]
+    if not items or len(set(fids)) != len(fids) or not set(fids).issubset(ids):
+        raise ValueError('Unexpected or duplicate factor in group response')
+    for item in items:
+        fid = item['factor_id']
+        try:
+            apply_group_reply(worker, ids, json.dumps({'actions':[item]}), parent, on_status)
+        except ValueError as error:
+            f = worker.state.factors[fid]
+            f.error = str(error)[:1500]
+            f.failed_response = json.dumps(item['action'])[:2000]
+            worker.store.event(action='group_item_repair', factor_id=fid, error=f.error)
+
+
 def analyse_grouped(h, targets, concurrency=2, metrics=None, rounds=4):
     metrics = metrics or Measurements()
     tools = CachedTools(h.retriever, h.executor, metrics)
@@ -112,11 +129,22 @@ def analyse_grouped(h, targets, concurrency=2, metrics=None, rounds=4):
                 for fid in pending:
                     queue.put(('status', fid, {'action': 'review', 'question': '공통 원문·자료를 활용한 요인 분석'}))
                 pending = pending[:3]
-                context = group_context(worker, pending)
+                # Dataset payloads contain per-cell provenance and can exceed a
+                # response budget. Keep quantitative steps in one-factor requests.
+                if any('dataset' in worker.context(fid)['available_actions'] for fid in pending):
+                    pending = pending[:1]
+                while True:
+                    try:
+                        context = group_context(worker, pending)
+                        break
+                    except ValueError:
+                        if len(pending) == 1:
+                            raise
+                        pending = pending[:-1]
                 request = worker.store.put('group_input', context)
                 raw = worker.client.next_actions(context)
                 response = worker.store.put('group_output', {'raw': raw}, [request])
-                apply_group_reply(worker, pending, raw, response,
+                apply_group_independently(worker, pending, raw, response,
                     lambda fid, action, question: queue.put(('status', fid, {'action':action, 'question':question})))
                 for fid in ids:
                     queue.put(('state', fid, worker.state.factors[fid].model_copy(deep=True)))

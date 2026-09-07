@@ -6,6 +6,23 @@ import httpx
 from .models import Action, BatchActions
 
 
+def action_branches(properties, allowed):
+    payloads = {'plan':'inquiry','reframe':'inquiry','search':'query','read':'source_ids',
+                'dataset':'dataset','calculate':'calculation','reuse':'reuse_dataset_ids','conclude':'judgement'}
+    choices = []
+    for action in allowed:
+        payload = payloads[action]
+        field = dict(properties[payload])
+        if 'anyOf' in field:
+            field = dict(next(p for p in field['anyOf'] if p.get('type') != 'null'))
+        if field.get('type') == 'array':
+            field['minItems'] = 1
+        choices.append({'type':'object','additionalProperties':False,
+            'properties':{'action':{'type':'string','enum':[action]},'reason':{'type':'string'},payload:field},
+            'required':['action','reason',payload]})
+    return choices
+
+
 def structured_content(content):
     if not isinstance(content, str) or not content.strip():
         raise ValueError("LLM returned empty structured content")
@@ -128,6 +145,7 @@ class ColabClient:
                            ("calculate", datasets), ("reuse", reusable)) if not ids}
             allowed = [action for action in allowed if action not in unavailable]
         schema["properties"]["action"]["enum"] = allowed
+        schema = {'$defs':schema['$defs'], 'anyOf':action_branches(schema['properties'], allowed)}
         return self.complete(prompt, context, schema)
 
     def next_actions(self, context):
@@ -165,6 +183,13 @@ class ColabClient:
                 branch['properties']['inquiry'] = {'$ref':'#/$defs/Inquiry'}
             choices.append(branch)
         schema['$defs']['Action'] = {'anyOf':choices}
+        schema['$defs']['FactorAction'] = {'anyOf':[
+            {'type':'object','additionalProperties':False,
+             'properties':{'factor_id':{'type':'string','enum':[fid]},
+                 'action':{'anyOf':[branch for branch in choices
+                     if branch['properties']['action']['enum'][0] in factor.get('available_actions', payloads)]}},
+             'required':['factor_id','action']}
+            for fid, factor in context['factors'].items()]}
         return self.complete(prompt, context, schema,
             request_options={'chat_template_kwargs':{'enable_thinking':False}, 'response_format':None,
                              'structured_outputs':{'json':schema, 'disable_any_whitespace':True}})
