@@ -201,6 +201,11 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
                     review_done=True
                     critical = ['F14','F17','F22','F24','F25'] if os.environ.get('CREDIT_REVIEW_THINKING','0')=='1' else ['F02','F05','F17','F20','F22','F24','F29']
                     ids=[f for f in critical if f in targets and h.state.factors[f].judgement]
+                    if os.environ.get('CREDIT_SEPARATE_REVIEW','1')=='0':
+                        atomic_json(h.store.path/'quality_review.json',{
+                            'status':'SKIPPED','reason':'Separate review disabled for controlled experiment',
+                            'verification':'No separate cross-factor review was performed'})
+                        ids=[]
                     if ids and deadline-monotonic()>25:
                         # F30 must consume revised findings, not the earlier drafts.
                         h.client.set_deadline(deadline-8)

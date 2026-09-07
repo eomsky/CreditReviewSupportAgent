@@ -103,6 +103,23 @@ def test_bundle_reference_arrays_cannot_repeat_until_token_limit():
                             'factors':{'F27':FACTORS['F27']}})
 
 
+def test_initial_numeric_bundle_thinking_is_opt_in_and_separate_from_review(monkeypatch):
+    options=[]
+    class Client:
+        def complete(self,prompt,context,schema,request_options):
+            options.append(request_options)
+            return '{"findings":[],"requests":[]}'
+    monkeypatch.setenv('CREDIT_BUNDLE_THINKING','1')
+    monkeypatch.setenv('CREDIT_BUNDLE_THINKING_BUDGET','1536')
+    monkeypatch.setenv('CREDIT_REVIEW_THINKING','0')
+    for fid,review in [('F14',False),('F02',False),('F14',True)]:
+        review_bundle(Client(),{'sources':{},'datasets':{},'calculations':{},
+                               'factors':{fid:FACTORS[fid]},'review_pass':review})
+    assert [x['chat_template_kwargs']['enable_thinking'] for x in options]==[True,False,False]
+    assert options[0]['thinking_token_budget']==1536
+    assert 'thinking_token_budget' not in options[1]
+
+
 def test_quality_pass_rejection_retains_draft_and_is_not_reported_complete(tmp_path):
     h=make(tmp_path)
     class Client:
