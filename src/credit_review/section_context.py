@@ -56,4 +56,46 @@ def attach_section_context(sources):
                                      'method':'preceding_structural_heading'},
                   'structured':{**structure,'section_path':list(path)}}
         result[sid]=source.model_copy(update={'metadata':metadata})
+    return attach_financial_regions(result)
+
+
+def attach_financial_regions(sources):
+    """Keep the explicit statement-section scope through nested note headings.
+
+    Some DART note headings replace their parent's section_path. A coordinate
+    interval anchored to the actual statement heading restores that parent;
+    it never infers scope from financial amounts or neighboring page openings.
+    """
+    markers=defaultdict(list)
+    for source in sources.values():
+        if source.kind=='table': continue
+        path=source.metadata.get('structured',{}).get('section_path') or []
+        where=position(source,end=True)
+        if not path or where is None: continue
+        financial=any('재무에 관한 사항' in str(t) for t in path)
+        scope=None; boundary=not financial
+        if financial:
+            for title in path:
+                title=re.sub(r'\s+','',str(title))
+                if re.fullmatch(r'\d+\.(?:연결)재무제표(?:주석)?',title):
+                    scope='CONSOLIDATED'; boundary=True
+                elif re.fullmatch(r'\d+\.(?:별도|개별)?재무제표(?:주석)?',title):
+                    scope='SEPARATE'; boundary=True
+                elif re.match(r'\d+\.(?:배당에관한사항|증권의발행|기타재무에관한사항)',title):
+                    scope=None; boundary=True
+        if boundary:
+            markers[source.document_id].append((where,source.id,scope,path))
+    for rows in markers.values(): rows.sort(key=lambda row:row[0])
+    result=dict(sources)
+    for sid,source in sources.items():
+        where=position(source)
+        rows=markers.get(source.document_id,[])
+        if where is None or not rows: continue
+        index=bisect_right([row[0] for row in rows],where)-1
+        if index<0 or rows[index][2] is None: continue
+        start,anchor,scope,path=rows[index]
+        metadata={**source.metadata,'financial_section_scope':{
+            'scope':scope,'source_id':anchor,'position':list(start),
+            'section_path':list(path),'method':'explicit_statement_section_interval'}}
+        result[sid]=source.model_copy(update={'metadata':metadata})
     return result

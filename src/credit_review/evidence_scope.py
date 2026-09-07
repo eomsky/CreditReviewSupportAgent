@@ -21,6 +21,10 @@ def explicit_scope(source):
     titles=[x.get('title') for x in tables if x.get('title')]
     scopes=set().union(*(_labels(t) for t in titles)) if titles else set()
     basis=titles
+    region=source.get('metadata',{}).get('financial_section_scope') or {}
+    if not scopes and region.get('scope') in ('CONSOLIDATED','SEPARATE'):
+        return {'scope':region['scope'],'basis':region.get('section_path',[]),
+                'source_id':region.get('source_id'),'method':region['method']}
     if not scopes:
         path=structured.get('section_path') or card.get('section_path') or []
         basis=[json.dumps(path,ensure_ascii=False)] if path else []

@@ -73,6 +73,9 @@ def test_foundation_wire_pairing_preserves_each_rows_sources():
     class Client:
         def complete(self,prompt,context,schema,request_options):
             assert 'records' in schema['$defs']['Dataset']['properties']
+            plan=schema['$defs']['PreparedDataset']
+            assert 'after_dataset' in plan['required']
+            assert plan['properties']['after_dataset']=={'$ref':'#/$defs/DatasetCalculation'}
             return json.dumps({'datasets':[{'dataset':{
                 'name':'cash','description':'cash','entity':'Example','scope':'CONSOLIDATED',
                 'value_type':'ACTUAL','columns':[{'name':'period','dtype':'string'},{'name':'cash','dtype':'number','unit':'KRW'}],

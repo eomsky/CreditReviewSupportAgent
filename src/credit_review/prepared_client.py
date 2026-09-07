@@ -55,6 +55,9 @@ def prepare_financial(client, context):
     context=compact_page_contexts(context)
     context, restore=alias_context(context)
     schema=Foundation.model_json_schema()
+    prepared=schema['$defs']['PreparedDataset']
+    prepared['properties']['after_dataset']={'$ref':'#/$defs/DatasetCalculation'}
+    prepared['required']=['dataset','after_dataset']
     schema['$defs']['Dataset']['properties']['value_type']={'type':'string','enum':['ACTUAL']}
     refs(schema['$defs']['Dataset']['properties']['cell_sources']['items']['additionalProperties'],context['sources'])
     cell_dataset_schema(schema, context['sources'])
@@ -78,6 +81,7 @@ def prepare_financial(client, context):
         '각 행에 columns에 정의한 모든 열의 셀을 하나씩 넣는다. 값과 그 값의 출처를 같은 셀 객체에 나란히 넣는다. '
         '행별 모든 non-null 셀에 출처가 필요하다. period_column은 실제 기간 열이다. '
         '각 데이터셋에 after_dataset={purpose,code,assumptions}를 붙여 추출과 계산 계획을 같은 호출에서 제공한다. '
+        'after_dataset은 필수이며 생략하거나 null로 쓰지 않는다. 계산할 수 없는 항목은 코드를 통해 결측으로 보존한다. '
         'Python의 df가 방금 만든 데이터프레임이며 pd/np가 제공된다. 다른 dfs ID를 쓰지 않는다. '
         '원문에서 확인된 열만 사용하고 result에 JSON 직렬화 가능한 계산 결과를 저장한다. '
         '계산 가능한 매출증감률·영업이익률·부채비율·영업현금흐름/매출 등 여러 분석용 지표를 한 번에 계산한다. '
