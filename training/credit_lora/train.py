@@ -41,7 +41,7 @@ def main():
     p=argparse.ArgumentParser(); p.add_argument('data',type=Path); p.add_argument('run',type=Path)
     p.add_argument('--deadline',default='2026-09-07T21:05:00+00:00')
     p.add_argument('--stage-seconds',default='2100,3300,2400,1800')
-    p.add_argument('--stage',choices=STAGES); p.add_argument('--resume',default=None)
+    p.add_argument('--stage',choices=STAGES+['refinement']); p.add_argument('--resume',default=None)
     p.add_argument('--adapter',default=None); p.add_argument('--quantize',action='store_true')
     p.add_argument('--max-steps',type=int,default=192); p.add_argument('--rank',type=int,default=16)
     p.add_argument('--gradient-accumulation',type=int,default=4)
@@ -62,6 +62,7 @@ def main():
     deadline=datetime.fromisoformat(a.deadline).timestamp()
     if time.time()>=deadline: raise RuntimeError('Training deadline has elapsed')
     durations=dict(zip(STAGES,map(int,a.stage_seconds.split(','))))
+    durations['refinement']=600  # A short, separately evaluated rehearsal trial.
     manifest={'base_model':BASE,'base_revision':REVISION,'tokenizer_revision':REVISION,
        'started_at':datetime.now(timezone.utc).isoformat(),'deadline':a.deadline,
        'arguments':{k:str(v) if isinstance(v,Path) else v for k,v in vars(a).items()},
