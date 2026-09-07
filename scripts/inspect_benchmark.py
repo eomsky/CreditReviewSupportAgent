@@ -28,3 +28,12 @@ for path in sorted(root.glob('artifacts/group_output_*.json'), key=lambda p:p.st
 print('ACTIONS', dict(Counter(actions)))
 print('DATASETS', len(list(root.glob('artifacts/dataset_*.json'))), 'CALCULATIONS', len(list(root.glob('artifacts/calculation_*.json'))))
 print('FACTOR_ERRORS', json.dumps({fid: f['error'] for fid,f in state['factors'].items() if f.get('error')}, ensure_ascii=False))
+for pattern in ['foundation_limitations_*.json','calculation_*.json']:
+    for path in root.glob('artifacts/'+pattern):
+        row=json.loads(path.read_text())['payload']
+        print(path.stem, json.dumps({k:row[k] for k in ['status','result','limitations','errors'] if k in row},ensure_ascii=False)[:1800])
+if (root/'performance.json').exists():
+    perf=json.loads((root/'performance.json').read_text())
+    for item in perf.get('operations',[]):
+        if item['kind'].startswith('llm_'):
+            print('TIMING',item['kind'],round(item['seconds'],2))
