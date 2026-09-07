@@ -118,7 +118,7 @@ def build():
     cells = [{"cell_type": "markdown", "metadata": {}, "source": [
         "# CreditReviewSupportAgent · Gemma 4 LLM 서버\n",
         "**A100 80GB · google/gemma-4-26B-A4B-it**\n\n",
-        "런타임 → 런타임 유형 변경 → A100 GPU를 선택한 후 전체 실행하세요. 실제 GPU 메모리도 확인합니다.\n",
+        "런타임 → 런타임 유형 변경 → A100 GPU 및 고용량 RAM을 선택한 후 전체 실행하세요. 실제 GPU 메모리도 확인합니다.\n",
         "왼쪽 열쇠(보안 비밀)의 HF_TOKEN에 이 노트북의 접근을 허용해야 합니다.\n\n",
         "Colab은 추론만 수행합니다. 문서 처리·계산·심사보고서는 Codespaces에서 실행합니다.\n",
         "런타임이 종료되면 서버도 종료됩니다. 재시작 시 새 연결 파일을 사용하세요.\n\n",
