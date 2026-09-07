@@ -3,6 +3,8 @@ import hashlib
 import importlib
 import json
 import os
+import traceback
+from uuid import uuid4
 from datetime import date
 from contextlib import ExitStack
 from time import monotonic
@@ -131,7 +133,7 @@ if start or resume:
         if h and resume:
             lease_stack.enter_context(run_lease(h))
             owns_run = True
-        if h:
+        if h and owns_run:
             checkpoint(h, "RUNNING", stage)
         if live:
             client = ColabClient()
@@ -139,6 +141,7 @@ if start or resume:
         else:
             client = DemoClient()
         if start:
+            stage = "PDF 본문 및 표 구조 분석"
             identifier(case_id)
             sources = []
             for file in upload:
@@ -240,10 +243,14 @@ if start or resume:
         progress.empty()
         activity.empty()
     except Exception as error:
+        atomic_json(ROOT / 'failures' / (uuid4().hex + '.json'), {
+            'stage': stage, 'error_type': type(error).__name__,
+            'error': str(error), 'traceback': traceback.format_exc(),
+        })
         if h and owns_run:
             h.store.event(action="report_generation", status="ERROR", error=str(error))
             checkpoint(h, "FAILED", stage, current_question, explain_failure(error))
-        st.session_state.generation_message = explain_failure(error)
+        st.session_state.generation_message = stage + ': ' + explain_failure(error)
     except BaseException:
         if h and owns_run:
             checkpoint(h, "FAILED", stage, current_question,
