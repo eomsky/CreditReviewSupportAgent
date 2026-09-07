@@ -9,7 +9,7 @@ from credit_review.documents import from_json
 from credit_review.harness import Harness
 from credit_review.llm import ColabClient
 from credit_review.models import Action
-from credit_review.prepared import NUMERIC_INPUTS, PreparedDataset, evidence_pack
+from credit_review.prepared import NUMERIC_INPUTS, PreparedDataset, foundation_context
 from credit_review.store import atomic_json
 
 
@@ -24,7 +24,7 @@ def main():
     state=json.loads((args.source_run/'state.json').read_text())
     h=Harness.create(Path('workspace/benchmarks'),'foundation',date.fromisoformat(state['review_date']),
                      from_json(json.dumps(source).encode()),client)
-    context=evidence_pack(h,NUMERIC_INPUTS,budget=32000,prefer_consolidated=True)
+    context=foundation_context(h,NUMERIC_INPUTS)
     parent=h.store.put('prepared_foundation_input',context)
     error=None
     try:

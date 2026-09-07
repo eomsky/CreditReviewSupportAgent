@@ -60,7 +60,7 @@ class BundleReview(Model):
     requests: list[EvidenceRequest] = Field(default_factory=list, max_length=3)
 
 
-def evidence_pack(h, ids, extra=None, budget=42000, prefer_consolidated=False):
+def evidence_pack(h, ids, extra=None, budget=42000, prefer_consolidated=False, only_extra=False):
     """Deduplicate ranked bodies once, preserving exact IDs and omitted markers."""
     ranked, by_factor = {}, {}
     for fid in ids:
@@ -83,6 +83,9 @@ def evidence_pack(h, ids, extra=None, budget=42000, prefer_consolidated=False):
             ranked[s['id']][1] += 1/(pos+1)
     for s in extra or []:
         ranked[s['id']] = [s, 100]
+    if only_extra:
+        allowed={s['id'] for s in extra or []}
+        ranked={sid:row for sid,row in ranked.items() if sid in allowed}
     from .evidence_scope import explicit_scope
     has_consolidated=prefer_consolidated and any(explicit_scope(row[0])['scope']=='CONSOLIDATED' for row in ranked.values())
     if has_consolidated:
@@ -118,6 +121,25 @@ def evidence_pack(h, ids, extra=None, budget=42000, prefer_consolidated=False):
     return {'review_date':str(h.state.review_date), 'sources':packed,
             'factor_source_ids':{fid:[sid for sid in sids if sid in packed] for fid,sids in by_factor.items()},
             'omitted_source_ids':[sid for sid in ranked if sid not in packed]}
+
+
+def foundation_context(h,ids):
+    """Use complete primary statements when their structural headings exist."""
+    from .evidence_scope import explicit_scope
+    titles=('연결재무상태표','연결포괄손익계산서','연결현금흐름표')
+    primary=[]; found=set()
+    for source in h.retriever.sources.values():
+        if source.kind!='table': continue
+        path=source.metadata.get('structured',{}).get('section_path',[])
+        section=''.join(str(x).replace(' ','') for x in path)
+        matched={title for title in titles if title in section}
+        if matched:
+            row=source.model_dump(mode='json')
+            if explicit_scope(row)['scope']=='CONSOLIDATED':
+                primary.append(row); found.update(matched)
+    if len(found)>=2:
+        return evidence_pack(h,ids,extra=primary,budget=32000,prefer_consolidated=True,only_extra=True)
+    return evidence_pack(h,ids,budget=32000,prefer_consolidated=True)
 
 
 def review_context(h, ids, extra=None):
@@ -160,7 +182,7 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
             'finished':sum(bool(h.state.factors[f].judgement) for f in targets),'total':len(targets),'metrics':metrics.snapshot()}
 
     def submit(kind, ids, extra=None, final=False):
-        context=evidence_pack(h,ids,budget=32000,prefer_consolidated=True) if kind=='foundation' else review_context(h,ids,extra)
+        context=foundation_context(h,ids) if kind=='foundation' else review_context(h,ids,extra)
         if kind!='foundation':
             context['final_pass']=final
             context['review_pass']=kind=='quality'
