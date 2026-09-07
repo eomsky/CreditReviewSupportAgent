@@ -87,8 +87,8 @@ if h:
     # Rehydrate persisted state after deployments; retain uploaded browser files.
     h = load_report(h.store.path / "state.json")
     st.session_state.harness = h
-report_area = st.empty()
 outcome_area = st.empty()
+report_area = st.empty()
 if h and not (start or resume):
     outcome = saved_status(h)
     if outcome:
@@ -105,6 +105,11 @@ if start or resume:
     # Check service before accepting a new run. Do not silently create a zero-result case.
     live = start or (h and h.state.mode == "LIVE")
     stage, current_question = "LLM 서버 연결 확인", ""
+    if resume and h:
+        previous = saved_status(h)
+        current_question = previous.get("question", "") if previous else ""
+        if not current_question:
+            current_question = next((f.inquiry.question for f in h.state.factors.values() if f.inquiry and not f.judgement), "")
     try:
         if h:
             checkpoint(h, "RUNNING", stage)
