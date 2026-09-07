@@ -116,3 +116,17 @@ def test_quality_pass_rejection_retains_draft_and_is_not_reported_complete(tmp_p
     assert review['status']=='PARTIAL'
     assert review['unresolved']==['F17']
     assert h.state.factors['F17'].judgement.summary=='Original supported limitation'
+
+
+def test_ordered_bundle_cannot_borrow_another_factors_requirement_keys():
+    class Client:
+        def complete(self,prompt,context,schema,request_options):
+            array=schema['properties']['findings']
+            assert array['items'] is False
+            for item,fid in zip(array['prefixItems'],['F27','F29']):
+                assert item['properties']['factor_id']['enum']==[fid]
+                keys=item['properties']['judgement']['properties']['requirements']['properties']
+                assert set(keys)==set(FACTORS[fid]['required_evidence'])
+            return '{"findings":[],"requests":[]}'
+    review_bundle(Client(),{'sources':{'a':{}},'datasets':{},'calculations':{},
+                            'factors':{fid:FACTORS[fid] for fid in ['F27','F29']}})
