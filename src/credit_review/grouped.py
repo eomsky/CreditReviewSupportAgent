@@ -1,6 +1,6 @@
 """Central work queue: shared-history lookup before every bounded batch."""
 import json
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from time import monotonic
 
 from .models import BatchActions, Action
@@ -229,11 +229,7 @@ def analyse_grouped(h, targets, concurrency=2, metrics=None, rounds=6, time_budg
                 future = pool.submit(worker.client.next_actions, context)
                 while not future.done():
                     # A bounded wait keeps UI heartbeats alive during slow inference.
-                    from concurrent.futures import TimeoutError as FutureTimeout
-                    try:
-                        future.result(timeout=min(0.5, max(0.001, deadline-monotonic())))
-                    except FutureTimeout:
-                        pass
+                    wait([future], timeout=min(0.5, max(0.001, deadline-monotonic())))
                     if monotonic() >= deadline:
                         raise ReviewStopped('LLM 응답 대기시간 한도로 중단했습니다. 확보한 결과는 보존했습니다.')
                     yield event('heartbeat', active=ids)

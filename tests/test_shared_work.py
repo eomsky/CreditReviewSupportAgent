@@ -120,3 +120,18 @@ def test_deadline_is_propagated_to_live_client():
     measured.set_deadline(time.monotonic()-1)
     with pytest.raises(TimeoutError):
         client.request_timeout()
+
+
+def test_client_json_failure_retries_as_batch(tmp_path):
+    h = make(tmp_path)
+    class Client:
+        calls = 0
+        def next_actions(self, context):
+            self.calls += 1
+            if self.calls == 1:
+                raise ValueError('LLM JSON output truncated')
+            return json.dumps({'actions':[conclusion(fid) for fid in context['factors']]})
+    client = h.client = Client()
+    list(analyse_grouped(h, ['F02','F04']))
+    assert client.calls == 2
+    assert h.state.factors['F02'].judgement and h.state.factors['F04'].judgement
