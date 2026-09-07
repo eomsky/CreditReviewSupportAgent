@@ -26,6 +26,7 @@ def main():
     parser.add_argument('--hard-timeout', type=float, default=60)
     parser.add_argument('--worker', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--engine', choices=['queued','prepared'], default='queued')
+    parser.add_argument('--concurrency', type=int, choices=range(1,5), default=2)
     args = parser.parse_args()
     if not args.worker:
         return supervise(args)
@@ -50,7 +51,7 @@ def main():
                 engine = analyse_prepared
             else:
                 engine = analyse_grouped
-            for event in engine(h, list(FACTORS), concurrency=2, metrics=metrics,
+            for event in engine(h, list(FACTORS), concurrency=args.concurrency, metrics=metrics,
                                 time_budget=args.hard_timeout-15 if args.engine=='prepared' else args.hard_timeout):
                 if not milestone_saved and monotonic()-metrics.started >= 60:
                     atomic_json(h.store.path/'milestone_60.json', {
@@ -80,6 +81,7 @@ def main():
         atomic_json(h.store.path/'performance.json', snapshot)
         summary = {'source_run':str(args.source_run), 'run':str(h.store.path), 'engine':args.engine,
             'model':client.model, 'source_revision':h.state.source_revision,
+            'concurrency':args.concurrency,
             'preparation':'Saved PDF extraction reused; includes index construction, excludes upload/OCR and browser rendering',
             'elapsed_seconds':snapshot['elapsed_seconds'], 'first_report_seconds':snapshot['first_report_seconds'],
             'first_final_stream_token_seconds':first_token, 'llm_calls':snapshot['llm_calls'],
@@ -104,7 +106,8 @@ def supervise(args):
     started = monotonic()
     with log.open('w', encoding='utf-8') as out:
         process = subprocess.Popen([sys.executable, __file__, str(args.source_run),
-            '--worker', '--hard-timeout', str(args.hard_timeout), '--engine', args.engine], stdout=out, stderr=subprocess.STDOUT,
+            '--worker', '--hard-timeout', str(args.hard_timeout), '--engine', args.engine,
+            '--concurrency',str(args.concurrency)], stdout=out, stderr=subprocess.STDOUT,
             start_new_session=os.name != 'nt')
         print('WATCHDOG', log, 'limit', args.hard_timeout, flush=True)
         stopped = False

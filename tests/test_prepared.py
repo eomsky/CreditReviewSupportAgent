@@ -1,4 +1,5 @@
 import json
+import pytest
 from threading import Event
 from test_harness import make
 from credit_review.prepared import analyse_prepared, evidence_pack
@@ -15,7 +16,8 @@ def test_aliases_restore_reference_keys_and_lists_without_changing_text():
     assert json.loads(restore(json.dumps(compact)))==value
 
 
-def test_numeric_bundles_wait_and_overall_sees_previous_findings(tmp_path):
+@pytest.mark.parametrize('concurrency',[1,2,3,4])
+def test_numeric_bundles_wait_and_overall_sees_previous_findings(tmp_path,concurrency):
     h=make(tmp_path)
     foundation=Event()
     class Client:
@@ -31,7 +33,7 @@ def test_numeric_bundles_wait_and_overall_sees_previous_findings(tmp_path):
                 'summary':'Evidence is limited; repayment capacity is not established.',
                 'evidence_ids':[], 'missing':['financial and contractual evidence']}} for fid in ids], 'requests':[]})
     h.client=Client()
-    events=list(analyse_prepared(h,list(FACTORS),time_budget=10))
+    events=list(analyse_prepared(h,list(FACTORS),time_budget=10,concurrency=concurrency))
     assert all(f.judgement for f in h.state.factors.values())
     assert all(f.status=='PARTIALLY_FULFILLED' for f in h.state.factors.values())
     assert any(e['kind']=='heartbeat' or e['kind']=='state' for e in events)

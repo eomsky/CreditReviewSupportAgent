@@ -130,7 +130,8 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
     review_done=False
     bundles=[list(f for f in ids if f in targets and not h.state.factors[f].judgement) for ids in BUNDLES]
     pending=[ids for ids in bundles if ids]
-    pool=ThreadPoolExecutor(max_workers=max(1,min(2,concurrency)),thread_name_prefix='credit-prepared')
+    slots=max(1,min(4,concurrency))
+    pool=ThreadPoolExecutor(max_workers=slots,thread_name_prefix='credit-prepared')
 
     def event(kind, fid=None, value=None):
         return {'kind':kind,'factor_id':fid,'value':value,'active':[f for job in jobs.values() for f in job['ids']],
@@ -150,7 +151,7 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
         submit('foundation',[f for f in NUMERIC_INPUTS if f in targets])
         while pending or jobs or followups or not review_done:
             if monotonic()>=deadline: raise TimeoutError('Prepared review reached its analysis deadline')
-            while len(jobs)<min(2,max(1,concurrency)):
+            while len(jobs)<slots:
                 ready=next((ids for ids in pending if (foundation_done or not set(ids)&set(NUMERIC_INPUTS))
                     and (ids!=['F30'] or (not jobs and not followups and len(pending)==1))),None)
                 if ready:
