@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import uuid
 from datetime import date
 from pathlib import Path
@@ -84,9 +85,20 @@ class Harness:
         parent = self.store.put('evidence_prefetch', {'factor_id': fid, 'query': query})
         self.apply(fid, Action(action='search', query=query, reason='Initial evidence candidates'), parent)
         focused = list(factor.recent_source_ids)
+        if os.environ.get('CREDIT_PREFETCH_BODIES', '0') == '1':
+            # Retrieve bodies locally once. This is delivery, never verification.
+            rows = {r['id']: r for r in self.retriever.read(focused) if r['id'] in focused}
+            selected = focused[:2]
+            if fid in NUMERIC_FACTORS:
+                tables = [sid for sid in focused if table_card(rows[sid])]
+                selected = list(dict.fromkeys(tables[:2] + selected))[:3]
+            if selected:
+                self.apply(fid, Action(action='read', source_ids=selected,
+                    reason='Deliver selected evidence bodies before first model judgement'), parent)
+                factor.recent_source_ids = selected + [sid for sid in focused if sid not in selected]
         # Loading a known needed table is local retrieval, not an LLM routing turn.
         # Keep all other candidates discoverable and require source/semantic checks.
-        if fid in NUMERIC_FACTORS:
+        if fid in NUMERIC_FACTORS and os.environ.get('CREDIT_PREFETCH_BODIES', '0') != '1':
             table = next((row['id'] for row in self.retriever.read(focused[:2])
                           if row['id'] in focused[:2] and table_card(row)), None)
             if table:
