@@ -213,6 +213,11 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
                         for fid in ids:
                             yield event('status',fid,{'action':'review','question':FACTORS[fid]['name']+'의 수치 범위와 판단 근거를 교차 검토'})
                         continue
+                    elif ids:
+                        atomic_json(h.store.path/'quality_review.json',{
+                            'status':'SKIPPED','reason':'Insufficient time reserved before final synthesis',
+                            'remaining_seconds':max(0,deadline-monotonic()),
+                            'verification':'No separate cross-factor review was performed'})
                 ready=next((ids for ids in pending if (foundation_done or not set(ids)&set(NUMERIC_INPUTS))
                     and (ids!=['F30'] or (review_done and not jobs and not followups and len(pending)==1))),None)
                 if ready:

@@ -34,6 +34,11 @@ def main():
     if not args.worker:
         return supervise(args)
     metrics = Measurements()
+    revision=subprocess.run(['git','rev-parse','HEAD'],capture_output=True,text=True)
+    configuration={key:os.environ.get(key) for key in (
+        'CREDIT_REVIEW_THINKING','CREDIT_REVIEW_THINKING_BUDGET',
+        'CREDIT_BUNDLE_THINKING','CREDIT_BUNDLE_THINKING_BUDGET',
+        'CREDIT_SEPARATE_REVIEW','CREDIT_FOUNDATION_BINDINGS','CREDIT_PDF_WORKERS')}
     state = json.loads((args.source_run/'state.json').read_text())
     client = ColabClient()
     client.check()
@@ -94,6 +99,8 @@ def main():
         snapshot = metrics.snapshot()
         atomic_json(h.store.path/'performance.json', snapshot)
         summary = {'source_run':str(args.source_run), 'run':str(h.store.path), 'engine':args.engine,
+            'code_revision':revision.stdout.strip() if revision.returncode==0 else None,
+            'configuration':configuration,
             'model':client.model, 'source_revision':h.state.source_revision,
             'concurrency':args.concurrency,
             'preparation':preparation_note,
