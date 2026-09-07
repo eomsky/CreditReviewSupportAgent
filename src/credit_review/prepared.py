@@ -197,8 +197,19 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
         while pending or jobs or followups or not review_done:
             if monotonic()>=deadline: raise TimeoutError('Prepared review reached its analysis deadline')
             while len(jobs)<slots:
+                if foundation_done and not jobs and not followups and (not pending or pending==[['F30']]) and not review_done:
+                    review_done=True
+                    critical = ['F14','F17','F22','F24','F25'] if os.environ.get('CREDIT_REVIEW_THINKING','0')=='1' else ['F02','F05','F17','F20','F22','F24','F29']
+                    ids=[f for f in critical if f in targets and h.state.factors[f].judgement]
+                    if ids and deadline-monotonic()>25:
+                        # F30 must consume revised findings, not the earlier drafts.
+                        h.client.set_deadline(deadline-8)
+                        submit('quality',ids,final=True)
+                        for fid in ids:
+                            yield event('status',fid,{'action':'review','question':FACTORS[fid]['name']+'의 수치 범위와 판단 근거를 교차 검토'})
+                        continue
                 ready=next((ids for ids in pending if (foundation_done or not set(ids)&set(NUMERIC_INPUTS))
-                    and (ids!=['F30'] or (not jobs and not followups and len(pending)==1))),None)
+                    and (ids!=['F30'] or (review_done and not jobs and not followups and len(pending)==1))),None)
                 if ready:
                     pending.remove(ready)
                     submit('bundle',ready)
@@ -207,15 +218,6 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
                 elif foundation_done and followups and (not pending or pending==[['F30']]):
                     ids,extra=followups.pop(0)
                     submit('bundle',ids,extra,final=True)
-                elif not pending and not jobs and not followups and not review_done:
-                    review_done=True
-                    critical = ['F14','F17','F22','F24','F25'] if os.environ.get('CREDIT_REVIEW_THINKING','0')=='1' else ['F02','F05','F17','F20','F22','F24','F29']
-                    ids=[f for f in critical
-                         if f in targets and h.state.factors[f].judgement]
-                    if ids and deadline-monotonic()>15:
-                        submit('quality',ids,final=True)
-                        for fid in ids:
-                            yield event('status',fid,{'action':'review','question':FACTORS[fid]['name']+'의 수치 범위와 판단 근거를 교차 검토'})
                 else: break
             if not jobs: break
             completed,_=wait(jobs,timeout=.3,return_when=FIRST_COMPLETED)
@@ -289,6 +291,7 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
                         raise  # An unavailable shared server cannot serve later bundles.
                 finally:
                     if job['kind']=='foundation': foundation_done=True
+                    if job['kind']=='quality': h.client.set_deadline(deadline)
                     h.save()
                     atomic_json(h.store.path/'performance.json',metrics.snapshot())
                     for fid in job['ids']: yield event('done',fid)

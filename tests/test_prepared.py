@@ -130,3 +130,19 @@ def test_ordered_bundle_cannot_borrow_another_factors_requirement_keys():
             return '{"findings":[],"requests":[]}'
     review_bundle(Client(),{'sources':{'a':{}},'datasets':{},'calculations':{},
                             'factors':{fid:FACTORS[fid] for fid in ['F27','F29']}})
+
+
+def test_overall_risk_uses_revised_findings_after_quality_pass(tmp_path):
+    h=make(tmp_path); observed=[]
+    class Client:
+        def set_deadline(self,deadline): pass
+        def prepare_financial(self,context): return '{"datasets":[],"limitations":[]}'
+        def review_bundle(self,context):
+            if list(context['factors'])==['F30']:
+                observed.append(context['prior_findings']['F17']['summary'])
+            return json.dumps({'findings':[{'factor_id':fid,'judgement':{
+                'summary':'Revised liquidity limitation' if context['review_pass'] else 'Initial draft',
+                'evidence_ids':[],'missing':['Limited evidence']}} for fid in context['factors']]})
+    h.client=Client()
+    list(analyse_prepared(h,list(FACTORS),time_budget=30,concurrency=2))
+    assert observed==['Revised liquidity limitation']
