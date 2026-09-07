@@ -33,6 +33,25 @@ def test_one_batch_produces_two_validated_sections_without_individual_calls(tmp_
     assert metrics.first_report_seconds is not None
 
 
+def test_batch_schema_requires_nonnull_payload_for_every_action():
+    from credit_review.llm import ColabClient
+    client = object.__new__(ColabClient)
+    captured = {}
+    def complete(prompt, context, schema):
+        captured.update(schema)
+        return '{}'
+    client.complete = complete
+    client.next_actions({'factors':{'F01':{}}})
+    branches = captured['$defs']['Action']['anyOf']
+    assert len(branches) == 8
+    for branch in branches:
+        assert len(branch['required']) == 3
+        payload = branch['required'][-1]
+        assert 'anyOf' not in branch['properties'][payload]
+    plan = next(b for b in branches if b['properties']['action']['enum']==['plan'])
+    assert 'inquiry' in plan['required']
+
+
 def test_group_dataset_and_executed_result_share_without_reextraction(tmp_path):
     h = make(tmp_path)
     for _ in range(2):

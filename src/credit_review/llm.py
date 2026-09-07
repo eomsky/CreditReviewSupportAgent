@@ -121,6 +121,21 @@ class ColabClient:
         prompt = (Path(__file__).parent / 'prompts' / 'group.md').read_text(encoding='utf-8')
         schema = BatchActions.model_json_schema()
         schema['$defs']['FactorAction']['properties']['factor_id']['enum'] = list(context['factors'])
+        properties = schema['$defs']['Action']['properties']
+        payloads = {'plan':'inquiry','reframe':'inquiry','search':'query','read':'source_ids',
+                    'dataset':'dataset','calculate':'calculation','reuse':'reuse_dataset_ids','conclude':'judgement'}
+        choices = []
+        for action, payload in payloads.items():
+            field = properties[payload]
+            if 'anyOf' in field:
+                field = next(part for part in field['anyOf'] if part.get('type') != 'null')
+            branch = {'type':'object','additionalProperties':False,
+                      'properties':{'action':{'type':'string','enum':[action]},'reason':{'type':'string'},payload:field},
+                      'required':['action','reason',payload]}
+            if action == 'conclude':
+                branch['properties']['inquiry'] = {'$ref':'#/$defs/Inquiry'}
+            choices.append(branch)
+        schema['$defs']['Action'] = {'anyOf':choices}
         return self.complete(prompt, context, schema)
 
     def stream_report(self, context):
