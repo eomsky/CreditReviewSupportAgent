@@ -22,6 +22,8 @@ DISCOVERY = {
     'F02':['회사의 연혁','설립 인적분할'],
     'F05':['연결대상 종속회사 개황','종속기업 재무정보'],
     'F10':['주요 매출처 매출 비중','고객 집중도 매출액'],
+    'F13':['연결 포괄손익계산서 매출액 영업이익'],
+    'F14':['연결 포괄손익계산서 매출액 영업이익'],
     'F20':['향후 투자 계획','수주상황 수주잔고'],
     'F22':['유동성위험 계약상 잔존만기','금융부채 만기분석'],
     'F24':['연결 현금흐름표 영업활동','차입금 계약상 만기'],
@@ -55,7 +57,7 @@ class BundleReview(Model):
     requests: list[EvidenceRequest] = Field(default_factory=list, max_length=3)
 
 
-def evidence_pack(h, ids, extra=None, budget=42000):
+def evidence_pack(h, ids, extra=None, budget=42000, prefer_consolidated=False):
     """Deduplicate ranked bodies once, preserving exact IDs and omitted markers."""
     ranked, by_factor = {}, {}
     for fid in ids:
@@ -73,9 +75,14 @@ def evidence_pack(h, ids, extra=None, budget=42000):
             ranked[s['id']][1] += 1/(pos+1)
     for s in extra or []:
         ranked[s['id']] = [s, 100]
+    from .evidence_scope import explicit_scope
+    has_consolidated=prefer_consolidated and any(explicit_scope(row[0])['scope']=='CONSOLIDATED' for row in ranked.values())
+    excluded_scopes=('SEPARATE','CONFLICT') if has_consolidated else ('CONFLICT',) if prefer_consolidated else ()
     packed, used = {}, 0
     for row, score in sorted(ranked.values(), key=lambda v:-v[1]):
         source = prompt_source(row, loaded=True)
+        if source.get('financial_scope',{}).get('scope') in excluded_scopes:
+            continue
         # Loaded Markdown already contains row/column labels. Keep scope and
         # provenance but do not send a second structural copy of every label.
         card = source.get('table_index')
@@ -138,7 +145,7 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
             'finished':sum(bool(h.state.factors[f].judgement) for f in targets),'total':len(targets),'metrics':metrics.snapshot()}
 
     def submit(kind, ids, extra=None, final=False):
-        context=evidence_pack(h,ids,budget=32000) if kind=='foundation' else review_context(h,ids,extra)
+        context=evidence_pack(h,ids,budget=32000,prefer_consolidated=True) if kind=='foundation' else review_context(h,ids,extra)
         if kind!='foundation':
             context['final_pass']=final
             context['review_pass']=kind=='quality'

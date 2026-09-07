@@ -63,6 +63,8 @@ def prompt_source(row, loaded=False):
     source['read_complete'] = loaded
     card = table_card(row)
     if card:
+        from .evidence_scope import explicit_scope
+        source['financial_scope']=explicit_scope(row)
         source['table_index'] = card
         source['values_loaded'] = loaded
         if not loaded:
