@@ -100,6 +100,8 @@ def prepare_bound_financial(client,context):
     indexed=compact_page_contexts(indexed)
     indexed,restore=alias_context(indexed)
     schema=BoundFoundation.model_json_schema()
+    schema['properties']['period_cells'].update(minItems=2,maxItems=2)
+    schema['$defs']['BoundColumn']['properties']['cells'].update(minItems=2,maxItems=2)
     table_ids=[sid for sid,s in indexed['sources'].items() if s.get('cell_addressing')]
     schema['$defs']['CellRef']['properties']['source_id']={'type':'string','enum':table_ids}
     prompt=(
@@ -108,6 +110,7 @@ def prepare_bound_financial(client,context):
         '표의 r0는 원래 머리글이고 c0는 첫 열이다. 예를 들어 r5 c2 값은 row=5,column=2이다. '
         '최근 비교 가능한 2개 기간을 모든 열에서 같은 순서로 선택한다. period_cells는 해당 기간의 원래 표 머리글 셀 주소다. '
         '시스템이 period_cells를 문자열 열 "기간"으로 만든다. columns에 기간 열을 다시 넣지 않는다. '
+        '출력은 entity,scope,period_cells(셀주소 2개),columns(각 name,dtype,unit,description,cells 셀주소 2개),after_dataset,limitations의 객체이다. '
         '같은 열 번호가 같은 기간인지 표마다 확인한다. '
         '연결 재무제표가 있으면 연결을 우선하며 별도 표와 섞지 않는다. financial_scope와 section_path를 확인한다. '
         'columns는 매출, 영업이익, 부채총계, 자본총계, 현금및현금성자산, 영업활동현금흐름을 우선한다. '
