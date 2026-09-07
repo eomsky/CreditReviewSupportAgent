@@ -229,7 +229,11 @@ if start or resume:
         targets = ["F24"] if h.state.mode == "DEMO" else list(FACTORS)
         with st.spinner("심사보고서를 작성하고 있습니다."):
             questions = {}
-            engine = analyse_grouped if live and h.state.review_strategy == 'grouped' else analyse_factors
+            # Resumed LIVE runs also use the shared follow-up queue, retaining assets.
+            if live:
+                h.state.review_strategy = 'grouped'
+                h.save()
+            engine = analyse_grouped if live else analyse_factors
             for event in engine(h, targets, concurrency=2 if live else 1, metrics=metrics):
                 kind, fid = event['kind'], event.get('factor_id')
                 if kind == 'status':

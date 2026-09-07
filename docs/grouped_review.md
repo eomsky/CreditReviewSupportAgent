@@ -1,7 +1,7 @@
 # Upload preparation and grouped review
 
-New LIVE runs use `ReviewState.review_strategy = grouped`. Old runs retain the
-adaptive strategy when resumed. Frozen Drive assets are not changed.
+New and resumed LIVE runs use `ReviewState.review_strategy = grouped`. Existing
+evidence, calculations and accepted judgements are preserved. Frozen Drive assets are not changed.
 
 Uploads start a two-worker preparation queue before Analysis Start. The cache is
 keyed by PDF bytes, pipeline version and publication date under workspace/documents.

@@ -19,9 +19,10 @@ def group_context(worker, ids):
     sources, datasets, calculations, factors, related, reusable = {}, {}, {}, {}, {}, {}
     for fid in ids:
         context = worker.context(fid)
-        for source in context.pop('sources')[:3]:
-            if len(source['text']) > 2400:
-                source['text'] = source['text'][:2400]
+        for source in context.pop('sources')[:2]:
+            source_limit = getattr(worker, 'source_excerpt_chars', 1200)
+            if len(source['text']) > source_limit:
+                source['text'] = source['text'][:source_limit]
                 source['excerpt_only'] = True
                 source['omission_note'] = 'Focused excerpt; use read/search to inspect omitted content before concluding.'
             sources[source['id']] = source
@@ -37,7 +38,10 @@ def group_context(worker, ids):
     for fid in ids:
         f = worker.state.factors[fid]
         f.evidence_ids = sorted(set(f.evidence_ids) | shared_ids)
-        factors[fid]['state']['evidence_ids'] = list(f.evidence_ids)
+        # Keep the complete evidence ledger in state.json; don't repeat it N times
+        # in a batch prompt. All shared source IDs remain usable by all members.
+        factors[fid]['state']['evidence_ids'] = [sid for sid in f.recent_source_ids if sid in sources][:2]
+        factors[fid]['state']['recent_source_ids'] = factors[fid]['state']['evidence_ids']
     # Common payloads appear once; every factor retains its actual provenance IDs.
     result = {'review_date': str(worker.state.review_date), 'factors': factors,
               'sources': sources, 'datasets': datasets, 'calculations': calculations,
@@ -132,8 +136,8 @@ def shared_context(worker, ids, memory):
         query = FACTORS[fid]['name'] + ' ' + ' '.join(FACTORS[fid]['required_evidence'])
         if f.inquiry:
             query += ' ' + f.inquiry.question
-        found = memory.search(query)
-        matches[fid] = found
+        found = memory.search(query, limit=3)
+        matches[fid] = [{**hit, 'summary':hit.get('summary','')[:400]} for hit in found]
         # Make relevant validated assets available, not assertions of applicability.
         for hit in found:
             aid = hit.get('artifact_id')
@@ -157,7 +161,7 @@ def shared_context(worker, ids, memory):
     context['reuse_policy'] = ('Search completed prior_work before requesting more work. '
         'Check entity, period, scope, units, assumptions. Prior LLM text is not verified truth. '
         'Only request unmet needs. Emit one shared tool request for duplicate needs across factors.')
-    if len(json.dumps(context, ensure_ascii=False)) > 64000:
+    if len(json.dumps(context, ensure_ascii=False)) > getattr(worker, 'context_char_budget', 24000):
         raise ValueError('Group context too large')
     return context
 
@@ -177,6 +181,7 @@ def analyse_grouped(h, targets, concurrency=2, metrics=None, rounds=6, time_budg
     memory = worker.shared_work = SharedWork(worker)
     pending = [fid for fid in targets if not h.state.factors[fid].judgement]
     attempted, repeated, rechecked = {}, {}, set()
+    consecutive_failures = 0
     pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='credit-batch')
     future = None
 
@@ -255,6 +260,7 @@ def analyse_grouped(h, targets, concurrency=2, metrics=None, rounds=6, time_budg
                             raise ReviewStopped('새로운 근거 없이 동일 요청이 반복되어 조기 중단했습니다.')
                         retained.append(item)
                     apply_group_independently(worker, ids, json.dumps({'actions':retained}), response)
+                    consecutive_failures = 0
                     for fid in ids:
                         f = h.state.factors[fid]
                         if f.status == 'GROUP_DEEP_REVIEW':
@@ -273,6 +279,13 @@ def analyse_grouped(h, targets, concurrency=2, metrics=None, rounds=6, time_budg
                     h.store.event(action='batch_repair', factors=ids, error=str(error))
                     if service_failure(error):
                         raise
+                    consecutive_failures += 1
+                    if consecutive_failures >= 2:
+                        raise ReviewStopped('연속 두 번 LLM 요청이 실패하여 조기 중단했습니다. 오류 기록과 기존 결과를 보존했습니다.') from error
+                    if 'context' in str(error).lower():
+                        # Retry once with materially smaller input, not an unchanged prompt.
+                        worker.context_char_budget = 12000
+                        worker.source_excerpt_chars = 600
                     for fid in ids:
                         h.state.factors[fid].error = str(error)[:1000]
                 h.state.report_id = None

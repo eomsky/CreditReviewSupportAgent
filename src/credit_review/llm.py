@@ -86,9 +86,11 @@ class ColabClient:
         with httpx.Client(timeout=15) as client:
             response = client.get(self.base_url + "/models", headers=headers)
             response.raise_for_status()
-            available = {m["id"] for m in response.json().get("data", [])}
+            models = response.json().get("data", [])
+            available = {m["id"] for m in models}
             if self.model not in available:
                 raise ValueError("Configured model is not served by the LLM endpoint")
+            self.context_tokens = next(m for m in models if m['id'] == self.model).get('max_model_len')
 
     def complete(self, system: str, context: dict, schema=None, request_options=None) -> str:
         serialized = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
@@ -159,12 +161,15 @@ class ColabClient:
         return self.complete(prompt, context, schema)
 
     def next_actions(self, context):
+        from .prompt_budget import compact_group_context
+        context = compact_group_context(context)
         prompt = (Path(__file__).parent / 'prompts' / 'group.md').read_text(encoding='utf-8')
         schema = BatchActions.model_json_schema()
         schema['properties']['actions']['maxItems'] = len(context['factors'])
         schema['$defs']['FactorAction']['properties']['factor_id']['enum'] = list(context['factors'])
         properties = schema['$defs']['Action']['properties']
-        evidence = sorted({sid for f in context['factors'].values() for sid in f.get('state',{}).get('evidence_ids',[])})
+        evidence = sorted(set(context.get('sources', {})) |
+            {sid for f in context['factors'].values() for sid in f.get('state',{}).get('evidence_ids',[])})
         def references(field, ids):
             if ids:
                 field['items'] = {'type':'string','enum':list(ids)}

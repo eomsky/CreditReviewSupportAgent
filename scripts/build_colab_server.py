@@ -9,7 +9,7 @@ from urllib.request import Request, urlopen, urlretrieve
 from google.colab import userdata
 
 MODEL_ID = "google/gemma-4-26B-A4B-it"
-CONTEXT_TOKENS = 28672
+CONTEXT_TOKENS = 49152  # input + output; request budget reserves 6000 output tokens
 PORT = 8001
 ROOT = Path("/content/credit_llm_server")
 ROOT.mkdir(exist_ok=True)
@@ -61,6 +61,16 @@ def call(path, payload=None, timeout=10):
                   headers={**headers, "Content-Type": "application/json"})
     return json.load(urlopen(req, timeout=timeout))
 
+if globals().get("server") and server.poll() is None:
+    active_model = next(m for m in call("/v1/models")["data"] if m["id"] == MODEL_ID)
+    if active_model.get("max_model_len") != CONTEXT_TOKENS:
+        print("문맥 한도 변경을 위해 LLM 서버를 재시작합니다.", flush=True)
+        server.terminate()
+        try:
+            server.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            server.kill()
+            server.wait(timeout=10)
 if not globals().get("server") or server.poll() is not None:
     log = (ROOT / "vllm.log").open("w")
     server = subprocess.Popen([
@@ -89,6 +99,10 @@ reply = call("/v1/chat/completions", {"model": MODEL_ID,
     "max_tokens": 128, "temperature": 0,
     "chat_template_kwargs": {"enable_thinking": False}}, timeout=180)
 print("실제 모델 응답:", reply["choices"][0]["message"]["content"])
+active_model = next(m for m in call("/v1/models")["data"] if m["id"] == MODEL_ID)
+actual_context = active_model.get("max_model_len")
+assert actual_context == CONTEXT_TOKENS, f"문맥 설정 불일치: requested={CONTEXT_TOKENS}, actual={actual_context}"
+print(f"확인된 전체 문맥: {actual_context:,} tokens · 출력 6,000 tokens 별도 확보")
 
 if not globals().get("tunnel") or tunnel.poll() is not None:
     tunnel_log = (ROOT / "tunnel.log").open("w")
@@ -105,7 +119,8 @@ if not globals().get("tunnel") or tunnel.poll() is not None:
     else:
         raise TimeoutError("연결 주소 생성 시간 초과")
 
-connection = {"base_url": SERVER_URL + "/v1", "model": MODEL_ID, "api_key": API_KEY}
+connection = {"base_url": SERVER_URL + "/v1", "model": MODEL_ID, "api_key": API_KEY,
+              "context_tokens": actual_context}
 config_file = ROOT / "llm_connection.json"
 config_file.write_text(json.dumps(connection, indent=2))
 config_file.chmod(0o600)

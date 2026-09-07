@@ -135,3 +135,16 @@ def test_client_json_failure_retries_as_batch(tmp_path):
     list(analyse_grouped(h, ['F02','F04']))
     assert client.calls == 2
     assert h.state.factors['F02'].judgement and h.state.factors['F04'].judgement
+
+
+def test_repeated_context_failures_stop_at_two_calls(tmp_path):
+    h = make(tmp_path)
+    class Client:
+        calls = 0
+        def next_actions(self, context):
+            self.calls += 1
+            raise ValueError('Context exceeds model token budget')
+    client = h.client = Client()
+    with pytest.raises(RuntimeError, match='두 번'):
+        list(analyse_grouped(h, ['F01','F02','F04','F05','F06','F07','F08','F09']))
+    assert client.calls == 2
