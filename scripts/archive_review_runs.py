@@ -2,14 +2,25 @@
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path, PurePosixPath
 import zipfile
 
 
-def pack(root,archive):
+def pack(root,archive,case_id=None):
     root=Path(root).resolve(); archive=Path(archive).resolve()
-    files=list((root/'cases').rglob('*'))+list(root.glob('watch_*.json'))+list(root.glob('watch_*.log'))
-    active={p.parent for p in (root/'cases').rglob('.run.lock')}
+    cases=root/'cases'
+    if case_id is not None:
+        if not re.fullmatch(r'[A-Za-z0-9_-]+',case_id):
+            raise ValueError('Invalid case identifier')
+        cases=cases/case_id
+    if not cases.is_dir():
+        raise ValueError('Archive root must contain the selected cases directory')
+    files=list(cases.rglob('*'))+list(root.glob('watch_*.json'))+list(root.glob('watch_*.log'))
+    active={p.parent for p in cases.rglob('.run.lock')}
+    files=[p for p in files if p.is_file() and not p.is_symlink() and not any(a in p.parents for a in active)]
+    if not files:
+        raise ValueError('No completed files to archive')
     entries=[]; stored=set()
     archive.parent.mkdir(parents=True,exist_ok=True)
     with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED) as z:
@@ -61,9 +72,10 @@ def main():
     p=argparse.ArgumentParser()
     sub=p.add_subparsers(dest='action',required=True)
     create=sub.add_parser('pack'); create.add_argument('root',type=Path); create.add_argument('archive',type=Path)
+    create.add_argument('--case',dest='case_id',help='Archive one case under ROOT/cases')
     read=sub.add_parser('restore'); read.add_argument('archive',type=Path); read.add_argument('target',type=Path)
     a=p.parse_args()
-    print(json.dumps(pack(a.root,a.archive) if a.action=='pack' else restore(a.archive,a.target),ensure_ascii=False))
+    print(json.dumps(pack(a.root,a.archive,a.case_id) if a.action=='pack' else restore(a.archive,a.target),ensure_ascii=False))
 
 
 if __name__=='__main__': main()

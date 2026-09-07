@@ -32,3 +32,29 @@ def test_archive_rejects_traversal_before_write(tmp_path):
             {'path':'../outside','sha256':'anything','bytes':0}]}))
     with pytest.raises(ValueError,match='Unsafe'):
         archive.restore(output,tmp_path/'restored')
+
+
+def test_wrong_root_cannot_create_false_empty_backup(tmp_path):
+    root=tmp_path/'case'; root.mkdir()
+    output=tmp_path/'out.zip'
+    with pytest.raises(ValueError,match='cases directory'):
+        archive.pack(root,output)
+    assert not output.exists()
+    (root/'cases').mkdir()
+    with pytest.raises(ValueError,match='No completed files'):
+        archive.pack(root,output)
+    assert not output.exists()
+
+
+def test_single_case_archive_preserves_restore_layout(tmp_path):
+    for case in ('selected','other'):
+        folder=tmp_path/'cases'/case/'runs'/'one'; folder.mkdir(parents=True)
+        (folder/'state.json').write_text(case)
+    output=tmp_path/'out.zip'
+    result=archive.pack(tmp_path,output,'selected')
+    assert result['files']==1
+    archive.restore(output,tmp_path/'restored')
+    assert (tmp_path/'restored/cases/selected/runs/one/state.json').read_text()=='selected'
+    assert not (tmp_path/'restored/cases/other').exists()
+    with pytest.raises(ValueError,match='Invalid case'):
+        archive.pack(tmp_path,tmp_path/'bad.zip','../other')
