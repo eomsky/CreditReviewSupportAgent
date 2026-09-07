@@ -1,8 +1,8 @@
 # Five-hour optimization and SFT record
 
-Execution window: 2026-09-08 01:49:39–06:49:39 KST. This record is being
-completed during the authorized window; final runtime verification is recorded
-separately below. The original Drive production and HTML are outside this change.
+Authorized execution window: 2026-09-08 01:49:39–06:49:39 KST. Runtime and
+artifact verification are recorded below. The original Drive production and
+HTML are outside this change.
 
 ## Acceptance and selection
 
@@ -169,3 +169,30 @@ Archive verification also exposed an incorrect-root call that produced an empty
 ZIP. It was not uploaded as a valid backup. The packer now rejects missing case
 directories and empty selections, and supports explicit single-case archives.
 The corrected UI archive restores 67 files with the original case path.
+
+## Final serving and durable artifacts
+
+At 21:34:56 UTC the server exposed the original Gemma base plus bundle, full and
+refined adapters. Real short generation succeeded with normal termination for
+all four served IDs. This verifies connectivity and selection, not report quality.
+The app's selected model is the base. The cached base revision matches the pinned
+adapter revision; no adapter is merged into it.
+
+For the normal UI run, 86 approximately one-second `nvidia-smi` samples recorded
+mean GPU utilization of 90.52%, a maximum of 100%, and maximum used GPU memory of
+73,966 MiB. The window includes preparation/transport intervals and is not a
+multi-user load test or a whole-night utilization estimate.
+
+The latest refinement checkpoint at step 80, including optimizer state, was also
+downloaded from Drive and reassembled. Its full SHA-256 and ZIP CRC match the
+Colab source manifest. Actual training-resume verification remains the earlier
+step-116-to-120 exercise; step 80 was not used to start another training pass.
+All stage-best adapters are preserved separately from recoverable checkpoints.
+
+The corrected full case archive, final base/adapter diagnostics, normal UI case,
+original PDF, generated Markdown, clean recovery notebook and runtime audit have
+separate private Drive backups. The UI case, report and notebook were downloaded
+and compared byte-for-byte. Credentials and the private restore command are
+excluded; the archived server log is redacted. A Korean recovery guide indexes
+the private assets and preserves the distinction between measured completion,
+successful restore and unmet expert-quality acceptance.
