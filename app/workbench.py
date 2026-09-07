@@ -93,6 +93,16 @@ if right.button("분석된 요인으로 종합 초안 작성"):
     except Exception as error:
         st.error(str(error))
 
+if st.button("선택 요인 연속 실행 (최대 15단계)"):
+    with st.status("요인 분석 진행 중", expanded=True) as progress:
+        for _ in range(15):
+            current = h.step(fid)
+            st.write(f"{current.steps}단계 · {current.status}")
+            if current.judgement or current.status in ("ERROR", "LIMIT_REACHED", "NO_PROGRESS"):
+                break
+        progress.update(label=f"실행 종료: {current.status}", state="error" if current.error else "complete")
+    st.rerun()
+
 tabs = st.tabs(["요인 분석", "데이터·계산", "근거 검색", "실행 JSON", "보고서"])
 f = h.state.factors[fid]
 with tabs[0]:

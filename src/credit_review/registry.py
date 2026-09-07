@@ -1,26 +1,7 @@
-"""Provisional F01-F30 baseline; requirements are evidence slots, not fixed formulas."""
-FACTOR_ROWS = [
- ("기업 기본정보", ["identity"]), ("기업 연혁", ["history"]),
- ("주주 및 지배구조", ["ownership"]), ("경영진 및 경영능력", ["management"]),
- ("계열·종속기업 현황", ["subsidiaries"]), ("사업구조", ["business_segments"]),
- ("주요 제품 경쟁력", ["products"]), ("산업환경 및 전망", ["industry_outlook"]),
- ("시장지위·경쟁구조", ["market_position"]), ("매출처 및 고객집중도", ["customers"]),
- ("원재료·공급망 위험", ["supply_chain"]), ("생산능력 및 가동상황", ["capacity"]),
- ("매출 성장성", ["revenue_history"]), ("수익성", ["profit_history"]),
- ("현금창출력", ["operating_cashflow", "capex"]),
- ("재무안정성", ["debt", "equity"]), ("유동성", ["cash", "short_term_debt"]),
- ("운전자본 및 자산의 질", ["receivables", "inventory"]),
- ("비경상손익·손상 위험", ["nonrecurring_items"]),
- ("추정재무 및 미래실적", ["forecast", "assumptions"]),
- ("총 차입금 구조", ["debt_structure"]), ("차입금 만기구조", ["maturity_schedule"]),
- ("금융기관 거래현황", ["bank_borrowings"]),
- ("상환재원 및 상환능력", ["operating_cashflow", "cash", "maturity_schedule", "loan_amount", "repayment_method"]),
- ("담보·보증·우발채무", ["collateral", "guarantees", "covenants"]),
- ("내·외부 신용등급", ["credit_ratings"]),
- ("여신 신청내용", ["loan_amount", "loan_purpose"]),
- ("여신조건 및 상환구조", ["loan_term", "repayment_method", "pricing"]),
- ("당행 Exposure 및 수익성", ["exposure", "limits", "profitability"]),
- ("주요 이벤트 및 종합 리스크", ["material_events"]),
-]
-FACTORS = {f"F{i:02}": {"id": f"F{i:02}", "name": name, "required_evidence": req,
-           "critical": i in (24, 27, 28, 29)} for i, (name, req) in enumerate(FACTOR_ROWS, 1)}
+"""Versioned F01-F30 evidence requirements, independent from report layout."""
+import json
+from pathlib import Path
+
+FACTORS = json.loads(Path(__file__).with_name("factors.json").read_text(encoding="utf-8"))
+if set(FACTORS) != {f"F{i:02}" for i in range(1, 31)}:
+    raise ValueError("Factor baseline requires F01-F30")

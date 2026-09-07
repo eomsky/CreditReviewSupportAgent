@@ -73,6 +73,14 @@ def test_row_requires_provenance():
         Dataset(name='x',description='x',entity='x',scope='SEPARATE',value_type='ACTUAL',
                 columns=[{'name':'year','dtype':'string'}],rows=[{'year':'2025'}],cell_sources=[{}],period_column='year')
 
+def test_unit_required_for_numeric_input(tmp_path):
+    h = make(tmp_path)
+    h.step('F24')
+    action = Action.model_validate_json(DemoClient().next_action(h.context('F24')))
+    action.dataset.columns[1].unit = None
+    with pytest.raises(ValueError, match='unit'):
+        h.apply('F24', action, 'test')
+
 def test_path_traversal(tmp_path):
     with pytest.raises(ValueError):
         Harness.create(tmp_path,'../escape',date(2026,4,7),demo_sources(),DemoClient())

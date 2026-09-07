@@ -1,0 +1,258 @@
+{
+  "F01": {
+    "id": "F01",
+    "name": "기업 기본정보",
+    "required_evidence": [
+      "identity"
+    ],
+    "critical": false
+  },
+  "F02": {
+    "id": "F02",
+    "name": "기업 연혁",
+    "required_evidence": [
+      "history"
+    ],
+    "critical": false
+  },
+  "F03": {
+    "id": "F03",
+    "name": "주주 및 지배구조",
+    "required_evidence": [
+      "ownership"
+    ],
+    "critical": false
+  },
+  "F04": {
+    "id": "F04",
+    "name": "경영진 및 경영능력",
+    "required_evidence": [
+      "management"
+    ],
+    "critical": false
+  },
+  "F05": {
+    "id": "F05",
+    "name": "계열·종속기업 현황",
+    "required_evidence": [
+      "subsidiaries"
+    ],
+    "critical": false
+  },
+  "F06": {
+    "id": "F06",
+    "name": "사업구조",
+    "required_evidence": [
+      "business_segments"
+    ],
+    "critical": false
+  },
+  "F07": {
+    "id": "F07",
+    "name": "주요 제품 경쟁력",
+    "required_evidence": [
+      "products"
+    ],
+    "critical": false
+  },
+  "F08": {
+    "id": "F08",
+    "name": "산업환경 및 전망",
+    "required_evidence": [
+      "industry_outlook"
+    ],
+    "critical": false
+  },
+  "F09": {
+    "id": "F09",
+    "name": "시장지위·경쟁구조",
+    "required_evidence": [
+      "market_position"
+    ],
+    "critical": false
+  },
+  "F10": {
+    "id": "F10",
+    "name": "매출처 및 고객집중도",
+    "required_evidence": [
+      "customers"
+    ],
+    "critical": false
+  },
+  "F11": {
+    "id": "F11",
+    "name": "원재료·공급망 위험",
+    "required_evidence": [
+      "supply_chain"
+    ],
+    "critical": false
+  },
+  "F12": {
+    "id": "F12",
+    "name": "생산능력 및 가동상황",
+    "required_evidence": [
+      "capacity"
+    ],
+    "critical": false
+  },
+  "F13": {
+    "id": "F13",
+    "name": "매출 성장성",
+    "required_evidence": [
+      "revenue_history"
+    ],
+    "critical": false
+  },
+  "F14": {
+    "id": "F14",
+    "name": "수익성",
+    "required_evidence": [
+      "profit_history"
+    ],
+    "critical": false
+  },
+  "F15": {
+    "id": "F15",
+    "name": "현금창출력",
+    "required_evidence": [
+      "operating_cashflow",
+      "capex"
+    ],
+    "critical": false
+  },
+  "F16": {
+    "id": "F16",
+    "name": "재무안정성",
+    "required_evidence": [
+      "debt",
+      "equity"
+    ],
+    "critical": false
+  },
+  "F17": {
+    "id": "F17",
+    "name": "유동성",
+    "required_evidence": [
+      "cash",
+      "short_term_debt"
+    ],
+    "critical": false
+  },
+  "F18": {
+    "id": "F18",
+    "name": "운전자본 및 자산의 질",
+    "required_evidence": [
+      "receivables",
+      "inventory"
+    ],
+    "critical": false
+  },
+  "F19": {
+    "id": "F19",
+    "name": "비경상손익·손상 위험",
+    "required_evidence": [
+      "nonrecurring_items"
+    ],
+    "critical": false
+  },
+  "F20": {
+    "id": "F20",
+    "name": "추정재무 및 미래실적",
+    "required_evidence": [
+      "forecast",
+      "assumptions"
+    ],
+    "critical": false
+  },
+  "F21": {
+    "id": "F21",
+    "name": "총 차입금 구조",
+    "required_evidence": [
+      "debt_structure"
+    ],
+    "critical": false
+  },
+  "F22": {
+    "id": "F22",
+    "name": "차입금 만기구조",
+    "required_evidence": [
+      "maturity_schedule"
+    ],
+    "critical": false
+  },
+  "F23": {
+    "id": "F23",
+    "name": "금융기관 거래현황",
+    "required_evidence": [
+      "bank_borrowings"
+    ],
+    "critical": false
+  },
+  "F24": {
+    "id": "F24",
+    "name": "상환재원 및 상환능력",
+    "required_evidence": [
+      "operating_cashflow",
+      "cash",
+      "maturity_schedule",
+      "loan_amount",
+      "repayment_method"
+    ],
+    "critical": true
+  },
+  "F25": {
+    "id": "F25",
+    "name": "담보·보증·우발채무",
+    "required_evidence": [
+      "collateral",
+      "guarantees",
+      "covenants"
+    ],
+    "critical": false
+  },
+  "F26": {
+    "id": "F26",
+    "name": "내·외부 신용등급",
+    "required_evidence": [
+      "credit_ratings"
+    ],
+    "critical": false
+  },
+  "F27": {
+    "id": "F27",
+    "name": "여신 신청내용",
+    "required_evidence": [
+      "loan_amount",
+      "loan_purpose"
+    ],
+    "critical": true
+  },
+  "F28": {
+    "id": "F28",
+    "name": "여신조건 및 상환구조",
+    "required_evidence": [
+      "loan_term",
+      "repayment_method",
+      "pricing"
+    ],
+    "critical": true
+  },
+  "F29": {
+    "id": "F29",
+    "name": "당행 Exposure 및 수익성",
+    "required_evidence": [
+      "exposure",
+      "limits",
+      "profitability"
+    ],
+    "critical": true
+  },
+  "F30": {
+    "id": "F30",
+    "name": "주요 이벤트 및 종합 리스크",
+    "required_evidence": [
+      "material_events"
+    ],
+    "critical": false
+  }
+}

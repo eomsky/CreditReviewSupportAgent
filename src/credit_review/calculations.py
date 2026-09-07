@@ -16,6 +16,9 @@ def validate_dataset(dataset: Dataset, allowed_sources: set[str]) -> pd.DataFram
         raise ValueError("연결/별도 확인 전 계산 불가")
     if not dataset.entity.strip():
         raise ValueError("Entity required")
+    for column in dataset.columns:
+        if column.dtype in ("number", "integer") and not column.unit:
+            raise ValueError(f"Numeric column requires an explicit unit: {column.name}")
     for row, refs in zip(dataset.rows, dataset.cell_sources):
         for col, value in row.items():
             if value is not None and not set(refs[col]).issubset(allowed_sources):
