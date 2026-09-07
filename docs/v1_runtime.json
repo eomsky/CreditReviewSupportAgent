@@ -1,0 +1,33 @@
+{
+  "name": "CreditReviewSupportAgent test v1",
+  "purpose": "Reproducible pre-LoRA comparison baseline; not the frozen Drive production",
+  "model": "google/gemma-4-26B-A4B-it",
+  "model_revision": "4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
+  "tokenizer_revision": "4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
+  "hardware_observed": "NVIDIA A100-SXM4-80GB",
+  "dtype": "bfloat16",
+  "context_tokens": 49152,
+  "server_max_num_seqs": 4,
+  "server_max_num_batched_tokens": 8192,
+  "server_gpu_memory_utilization": 0.9,
+  "prefix_caching": true,
+  "reasoning_parser": "gemma4",
+  "engine": "prepared",
+  "client_concurrency": 2,
+  "analysis_budget_seconds": 105,
+  "full_run_watchdog_seconds": 120,
+  "default_environment": {"CREDIT_REVIEW_THINKING": "0"},
+  "optional_experiment_environment": {
+    "CREDIT_REVIEW_THINKING": "1",
+    "CREDIT_REVIEW_THINKING_BUDGET": "512"
+  },
+  "observed_software": {
+    "torch": "2.13.0+cu129",
+    "transformers": "5.16.1",
+    "vllm": "0.28.1rc1.dev472+gd9105ea80.cu129"
+  },
+  "selected_reference_run": "run_11816da2dd0641498fc8514b54bdd228",
+  "prepared_generation_parent_seconds": 103.0686,
+  "quality_reference_target_achieved": false,
+  "fresh_upload_to_complete_120s_achieved": false
+}

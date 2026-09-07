@@ -15,6 +15,27 @@ as full employee upload-to-result latency.
 | 7dc4da6 | 98.818 | 15 | 6 | No | Financial extraction hit 5,000 output-token cap |
 | dcb23dd | 78.442 | 30 | 8 | Yes | Foundation 13.38s; dataset retained, Python lacked result assignment |
 | 54ffbad | 103.069 | 30 | 9 | Yes | Shared dataframe result and critical-factor review; remaining semantic defects |
+| eb4275c | 98.316 | 30 | 8 | No | Seven-factor thinking review timed out; rejected |
+| f00e32f | 115.950 | 30 | 9 | Yes | Three-factor thinking review timed out; final synthesis preserved; rejected as optimization |
+| 6f408b2 + thinking budget 512 | 94.418 | 30 | 9 | Yes | Three-factor reasoning review completed in 18.6s, but generated Python referenced a nonexistent column; not selected |
+
+Fresh native PDF preparation was measured separately: 277 pages, 1,435,077 bytes,
+1,345 source segments; extraction 88.438 seconds, indexing 0.876 seconds,
+total 89.314 seconds. No OCR and no cached extraction were used. Filesystem/model
+caches may still be warm. This plus report generation exceeds 120 seconds, so
+upload-to-complete latency is **not achieved**. Avoid claiming prepared-run times
+as end-to-end employee latency.
+
+Selection: keep `CREDIT_REVIEW_THINKING=0` as the default. The selected reference
+execution is `run_11816da2dd0641498fc8514b54bdd228` (54ffbad, 103.069s), where
+the shared Python calculation executed and the cross-factor review completed.
+Subsequent reliability fixes preserve drafts on review failure and reserve the
+final synthesis window. The 512-token reasoning option remains an explicit
+experiment, not the default or a claim of higher credit quality.
+
+The first hour produced 85 passing automated tests; these cover contracts,
+calculation execution, evidence plumbing and report behavior, not expert credit
+approval quality. `docs/v1_runtime.json` records the measured serving environment.
 
 Document completion is not a quality pass. Manual comparison found errors even
 when all 30 opinions existed and schema validation passed. Remaining concerns:
