@@ -83,9 +83,17 @@ class Judgement(Model):
     requirements: dict[str, list[str]] = Field(default_factory=dict)
 
 
+class Inquiry(Model):
+    question: str = Field(min_length=1, max_length=300)
+    hypotheses: list[str] = Field(min_length=1, max_length=5)
+    evidence_tests: list[str] = Field(min_length=1, max_length=6)
+    change_reason: str = Field(min_length=1, max_length=500)
+
+
 class Action(Model):
-    action: Literal["search", "read", "dataset", "calculate", "conclude"]
+    action: Literal["plan", "reframe", "search", "read", "dataset", "calculate", "conclude"]
     reason: str
+    inquiry: Inquiry | None = None
     query: str | None = None
     source_ids: list[str] = Field(default_factory=list)
     dataset: Dataset | None = None
@@ -94,7 +102,7 @@ class Action(Model):
 
     @model_validator(mode="after")
     def payload(self):
-        required = {"search": self.query, "read": self.source_ids,
+        required = {"plan": self.inquiry, "reframe": self.inquiry, "search": self.query, "read": self.source_ids,
                     "dataset": self.dataset, "calculate": self.calculation,
                     "conclude": self.judgement}[self.action]
         if not required:
@@ -116,6 +124,11 @@ class FactorState(Model):
     requirements_met: list[str] = Field(default_factory=list)
     last_signature: str | None = None
     repeated_actions: int = 0
+    inquiry: Inquiry | None = None
+    reframes: int = 0
+    consecutive_errors: int = 0
+    failed_response: str | None = None
+    report_text: str | None = None
 
 
 class ReviewState(Model):

@@ -12,10 +12,16 @@ from credit_review.demo import DemoClient
 from credit_review.documents import from_json, from_pdf
 from credit_review.harness import Harness
 import credit_review.llm as llm_module
+import credit_review.models as models_module
+import credit_review.harness as harness_module
+import credit_review.reporting as reporting_module
 
 # Streamlit preserves imported modules between reruns. Refresh the small,
 # stateless client so a deployed connection fix applies without losing uploads.
+importlib.reload(models_module)
 ColabClient = importlib.reload(llm_module).ColabClient
+Harness = importlib.reload(harness_module).Harness
+importlib.reload(reporting_module)
 from credit_review.registry import FACTORS
 from credit_review.reporting import report_document, report_markdown
 from credit_review.store import identifier
@@ -28,6 +34,8 @@ class LazyLiveClient:
         return ColabClient().next_action(context)
     def synthesize(self, context):
         return ColabClient().synthesize(context)
+    def stream_report(self, context):
+        yield from ColabClient().stream_report(context)
 
 def load_report(path):
     meta = json.loads(path.read_text(encoding="utf-8"))
@@ -74,6 +82,10 @@ with st.sidebar:
         st.error(message)
 
 h = st.session_state.get("harness")
+if h:
+    # Rehydrate persisted state after deployments; retain uploaded browser files.
+    h = load_report(h.store.path / "state.json")
+    st.session_state.harness = h
 report_area = st.empty()
 with report_area.container():
     show_report(h)
@@ -109,31 +121,66 @@ if start or resume:
             h.client = client
         st.session_state.pop("generation_message", None)
         progress = st.empty()
+        activity = st.empty()
+        writing = st.empty()
+        def status(action, question):
+            labels = {"plan": "검토 질문과 확인 계획을 세우고 있습니다", "reframe": "검토 방향을 조정하고 있습니다",
+                "search": "관련 근거를 검색하고 있습니다", "read": "원문과 주석을 확인하고 있습니다",
+                "dataset": "계산에 필요한 자료를 구성하고 있습니다", "calculate": "Python으로 계산하고 있습니다",
+                "conclude": "근거를 종합해 판단을 정리하고 있습니다"}
+            activity.info(f"{question}\n\n{labels.get(action, '판단을 검토하고 있습니다')}.")
+        def write_section(fid=None):
+            activity.info("종합심사의견을 작성하고 있습니다." if fid is None else f"{FACTORS[fid]['name']} 판단을 보고서로 작성하고 있습니다.")
+            try:
+                with writing.container():
+                    st.caption("작성 중인 보고서 초안")
+                    st.write_stream(h.stream_narrative(fid))
+            except Exception as error:
+                h.store.event(action="narrative", factor_id=fid, status="ERROR", error=str(error))
+                activity.info("본문 출력이 중단되어 확보된 판단을 표시합니다.")
+            finally:
+                writing.empty()
+                with report_area.container():
+                    show_report(h)
         targets = ["F24"] if h.state.mode == "DEMO" else list(FACTORS)
         with st.spinner("심사보고서를 작성하고 있습니다."):
             for i, fid in enumerate(targets):
                 factor = h.state.factors[fid]
                 if factor.judgement:
+                    if live and not factor.report_text:
+                        write_section(fid)
                     continue
                 if factor.status in ("ERROR", "LIMIT_REACHED", "NO_PROGRESS"):
                     h.reset_factor(fid)
-                for _ in range(15):
-                    factor = h.step(fid)
+                for _ in range(24):
+                    factor = h.state.factors[fid]
+                    question = factor.inquiry.question if factor.inquiry else f"{FACTORS[fid]['name']}에서 여신 판단에 중요한 쟁점은 무엇인가?"
+                    if factor.status == "RETRYING":
+                        activity.info(f"{question}\n\n자료 형식과 검증 결과를 재검토하고 있습니다.")
+                    else:
+                        status("review", question)
+                    factor = h.step(fid, max_steps=24, repair_attempts=2, on_status=status)
                     if factor.judgement or factor.status in ("ERROR", "LIMIT_REACHED", "NO_PROGRESS"):
                         break
+                if live and factor.judgement:
+                    write_section(fid)
                 # Preserve missing/conflict/errors internally. They are not report sections.
                 with report_area.container():
                     show_report(h)
                 progress.progress((i + 1) / len(targets), text="심사보고서 작성 중")
             if any(f.judgement for f in h.state.factors.values()):
                 try:
+                    activity.info("요인별 판단의 상충관계와 상환능력 영향을 종합하고 있습니다.")
                     h.synthesize()
+                    if live:
+                        write_section()
                 except Exception as error:
                     h.store.event(action="synthesis", status="ERROR", error=str(error))
                     st.session_state.generation_message = "종합의견 작성이 중단되었습니다. 작성된 보고서 본문은 보존했습니다."
             else:
                 st.session_state.generation_message = "보고서 생성이 완료되지 않았습니다. 연결 및 실행 오류를 확인해야 합니다."
         progress.empty()
+        activity.empty()
     except Exception as error:
         if h:
             h.store.event(action="report_generation", status="ERROR", error=str(error))

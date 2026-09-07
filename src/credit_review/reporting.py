@@ -15,44 +15,26 @@ SECTIONS = [
 def report_document(h):
     """Keep factual qualifications in analysis; omit operational checklists."""
     sections = []
-    seen_data, seen_calcs = set(), set()
     for title, ids in SECTIONS:
         paragraphs, tables = [], []
         for fid in ids:
             f = h.state.factors[fid]
+            if f.report_text:
+                paragraphs.append({"heading": FACTORS[fid]["name"], "text": f.report_text})
+                continue
             if f.judgement:
                 paragraphs.append({"heading": FACTORS[fid]["name"], "text": f.judgement.summary})
                 # Risks/mitigants are substantive analysis, unlike internal missing slots.
                 for label, values in [("위험요인", f.judgement.risks), ("완화요인", f.judgement.mitigants)]:
                     if values:
                         paragraphs.append({"heading": label, "text": " ".join(values)})
-            for aid in f.dataset_ids:
-                if aid in seen_data:
-                    continue
-                seen_data.add(aid)
-                data = h.store.get(aid)["payload"]
-                tables.append({"caption": data["description"],
-                    "columns": [c["name"] + (f" ({c['unit']})" if c.get("unit") else "") for c in data["columns"]],
-                    "rows": [[row[c["name"]] for c in data["columns"]] for row in data["rows"]]})
-            for aid in f.calculation_ids:
-                if aid in seen_calcs:
-                    continue
-                seen_calcs.add(aid)
-                data = h.store.get(aid)["payload"]
-                result = data.get("result")
-                if isinstance(result, dict):
-                    tables.append({"caption": data["plan"]["purpose"], "columns": ["산출 항목", "결과"],
-                        "rows": [[k, str(v)] for k, v in result.items()]})
-                else:
-                    paragraphs.append({"heading": data["plan"]["purpose"], "text": str(result)})
-                if data["plan"].get("assumptions"):
-                    paragraphs.append({"heading": "산출 기준", "text": " ".join(data["plan"]["assumptions"])})
         if paragraphs or tables:
             sections.append({"title": title, "paragraphs": paragraphs, "tables": tables})
     if h.state.report_id:
         raw = h.store.get(h.state.report_id)["payload"]
-        sections.append({"title": "종합심사의견", "paragraphs": [
-            {"heading": "", "text": p["text"]} for p in raw["paragraphs"]], "tables": []})
+        paragraphs = [{"heading": "", "text": raw["narrative"]}] if raw.get("narrative") else [
+            {"heading": "", "text": p["text"]} for p in raw["paragraphs"]]
+        sections.append({"title": "종합심사의견", "paragraphs": paragraphs, "tables": []})
     return {"title": "주요여신위험 및 종합심사의견", "case_id": h.state.case_id,
             "review_date": str(h.state.review_date), "mode": h.state.mode,
             "sections": sections, "draft": True}

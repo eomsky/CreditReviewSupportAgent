@@ -45,9 +45,10 @@ class Harness:
                 "sources": self.retriever.read(factor.evidence_ids),
                 "datasets": {aid: self.store.get(aid)["payload"] for aid in factor.dataset_ids},
                 "calculations": {aid: self.store.get(aid)["payload"] for aid in factor.calculation_ids},
-                "available_actions": ["search", "read", "dataset", "calculate", "conclude"]}
+                "related_findings": {k: v.judgement.model_dump(mode="json") for k, v in self.state.factors.items() if k != fid and v.judgement},
+                "available_actions": ["plan", "reframe", "search", "read", "dataset", "calculate", "conclude"]}
 
-    def step(self, fid: str, max_steps: int = 15):
+    def step(self, fid: str, max_steps: int = 15, repair_attempts: int = 0, on_status=None):
         factor = self.state.factors[fid]
         if factor.judgement or factor.status in ("LIMIT_REACHED", "NO_PROGRESS"):
             return factor
@@ -60,14 +61,20 @@ class Harness:
         with lock.open("x"):
             pass
         request_id = None
+        raw = None
         try:
+            factor.steps += 1
             context = self.context(fid)
             request_id = self.store.put("llm_input", context, factor.dataset_ids + factor.calculation_ids)
             raw = self.client.next_action(context)
             response_id = self.store.put("llm_output", {"raw": raw}, [request_id])
             action = Action.model_validate_json(raw)
-            factor.steps += 1
-            signature = hashlib.sha256(action.model_dump_json().encode()).hexdigest()
+            if on_status:
+                question = action.inquiry.question if action.inquiry else (factor.inquiry.question if factor.inquiry else FACTORS[fid]["name"])
+                if action.action == "reframe":
+                    question += " — " + action.inquiry.change_reason
+                on_status(action.action, question)
+            signature = hashlib.sha256(action.model_dump_json(exclude={"reason"}).encode()).hexdigest()
             factor.repeated_actions = factor.repeated_actions + 1 if signature == factor.last_signature else 0
             factor.last_signature = signature
             if factor.repeated_actions >= 2:
@@ -75,10 +82,14 @@ class Harness:
                 return factor
             result = self.apply(fid, action, response_id)
             factor.error = None
+            factor.failed_response = None
+            factor.consecutive_errors = 0
             self.store.event(factor_id=fid, action=action.action, request_id=request_id, output_id=result)
         except Exception as error:
             factor.error = f"{type(error).__name__}: {error}"
-            factor.status = "ERROR"
+            factor.failed_response = raw[:12000] if raw else None
+            factor.consecutive_errors += 1
+            factor.status = "RETRYING" if isinstance(error, ValueError) and factor.consecutive_errors <= repair_attempts else "ERROR"
             self.store.event(factor_id=fid, status="ERROR", error=factor.error, request_id=request_id)
         finally:
             lock.unlink(missing_ok=True)
@@ -88,6 +99,19 @@ class Harness:
     def apply(self, fid, action: Action, parent_id: str):
         f = self.state.factors[fid]
         f.status = "IN_PROGRESS"
+        if action.action in ("plan", "reframe"):
+            if action.action == "plan" and f.inquiry:
+                raise ValueError("A plan exists; use reframe to change the question")
+            if action.action == "reframe":
+                if f.reframes >= 3:
+                    raise ValueError("Reframe limit reached; conclude with supported qualifications")
+                f.reframes += 1
+            previous = f.inquiry.model_dump() if f.inquiry else None
+            f.inquiry = action.inquiry
+            f.report_text = None
+            self.state.report_id = None
+            return self.store.put("inquiry", {"previous": previous, "current": f.inquiry.model_dump(),
+                "factor_id": fid}, [parent_id])
         if action.action in ("search", "read"):
             if action.action == "search":
                 hits = self.retriever.search(action.query)
@@ -141,7 +165,8 @@ class Harness:
         old = self.state.factors[fid]
         self.store.put("factor_checkpoint", old.model_dump(mode="json"))
         self.state.factors[fid] = FactorState(factor_id=fid, evidence_ids=old.evidence_ids,
-            dataset_ids=old.dataset_ids, calculation_ids=old.calculation_ids)
+            dataset_ids=old.dataset_ids, calculation_ids=old.calculation_ids, inquiry=old.inquiry,
+            reframes=old.reframes)
         self.state.report_id = None
         self.store.event(action="reset_factor", factor_id=fid)
         self.save()
@@ -151,7 +176,8 @@ class Harness:
         if not completed:
             raise ValueError("Analyze at least one factor before synthesis")
         context = {"mode": self.state.mode, "review_date": str(self.state.review_date),
-            "factors": {fid: self.context(fid) for fid in completed},
+            "factors": {fid: {"name": FACTORS[fid]["name"], "state": {"judgement": f.judgement.model_dump()},
+                "inquiry": f.inquiry.model_dump() if f.inquiry else None} for fid, f in completed.items()},
             "unanalysed": [fid for fid in FACTORS if fid not in completed],
             "status": "DRAFT_ONLY"}
         request = self.store.put("synthesis_input", context)
@@ -175,6 +201,39 @@ class Harness:
         self.state.report_id = self.store.put("report", report, [response])
         self.save()
         return report
+
+    def stream_narrative(self, fid=None):
+        """Stream an editorial draft; commit only after a clean stream finish."""
+        if fid:
+            factor = self.state.factors[fid]
+            if not factor.judgement:
+                raise ValueError("A supported judgement is required before report writing")
+            context = {"name": FACTORS[fid]["name"], "judgement": factor.judgement.model_dump(),
+                "calculations": [self.store.get(a)["payload"] for a in factor.judgement.calculation_ids]}
+        else:
+            if not self.state.report_id:
+                raise ValueError("Synthesis is required before final report writing")
+            context = self.store.get(self.state.report_id)["payload"]
+        request = self.store.put("narrative_input", context)
+        chunks = []
+        try:
+            for chunk in self.client.stream_report(context):
+                chunks.append(chunk)
+                yield chunk
+            text = "".join(chunks).strip()
+            if not text:
+                raise ValueError("Empty report stream")
+            self.store.put("narrative", {"factor_id": fid, "text": text, "status": "DRAFT"}, [request])
+            if fid:
+                factor.report_text = text
+            else:
+                revised = dict(context, narrative=text)
+                self.state.report_id = self.store.put("report", revised, [self.state.report_id, request])
+            self.save()
+        except Exception:
+            self.store.put("narrative_partial", {"factor_id": fid, "text": "".join(chunks),
+                "status": "INTERRUPTED"}, [request])
+            raise
 
     @classmethod
     def resume(cls, root, case_id, run_id, client, executor=None):
