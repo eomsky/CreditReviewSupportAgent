@@ -2,6 +2,7 @@
 from decimal import Decimal
 import re
 from typing import Literal
+from types import SimpleNamespace
 from pydantic import Field
 from .models import Model, DatasetCalculation, Dataset
 
@@ -14,7 +15,7 @@ class CellRef(Model):
 
 class BoundColumn(Model):
     name: str
-    dtype: Literal['string','number','integer','boolean']
+    dtype: Literal['number','integer']
     unit: str | None = None
     description: str = ''
     cells: list[CellRef] = Field(min_length=1,max_length=3)
@@ -80,7 +81,7 @@ def materialize(bound,matrices):
     count=len(bound.period_cells)
     if any(len(column.cells)!=count for column in bound.columns):
         raise ValueError('Every selected column must cover the same periods')
-    period=BoundColumn(name='기간',dtype='string',cells=bound.period_cells)
+    period=SimpleNamespace(name='기간',dtype='string',unit=None,description='원문 기간 머리글',cells=bound.period_cells)
     if any(c.name=='기간' for c in bound.columns):
         raise ValueError('Period cells must be declared separately from numeric columns')
     columns=[period]+bound.columns
