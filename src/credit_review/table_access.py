@@ -34,7 +34,24 @@ def table_card(row):
 
 def search_text(source):
     card = table_card(source.model_dump(mode='json'))
-    return json.dumps(card, ensure_ascii=False) if card else source.text
+    if not card:
+        return source.text
+    # Index semantic labels only. IDs, JSON keys and numeric cell bodies make
+    # unrelated tables look similar and consume retrieval/embedding capacity.
+    parts = []
+    def add(value):
+        if isinstance(value, str) and value.strip(): parts.append(value.strip())
+        elif isinstance(value, list):
+            for item in value: add(item)
+        elif isinstance(value, dict):
+            for key in ('text','label','name','title','path'): add(value.get(key))
+    add(card.get('section_path'))
+    for table in card['tables']:
+        add(table.get('title'))
+        for column in table['columns']: add(column.get('path'))
+        for row in table['rows']: add(row.get('path'))
+        for unit in table['units']: add(unit.get('text'))
+    return '\n'.join(dict.fromkeys(parts)) or source.text
 
 
 def prompt_source(row, loaded=False):

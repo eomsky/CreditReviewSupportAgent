@@ -22,8 +22,13 @@ def source():
 def test_discovery_index_excludes_values_but_preserves_labels():
     text = search_text(source())
     assert '987654321' not in text
-    for value in ('Revenue', 'revenue', '2025', 'KRW million', 'part_count', 'table1'):
+    for value in ('Revenue', 'revenue', '2025', 'KRW million'):
         assert value in text
+    assert 'part_count' not in text and 'table1' not in text
+    from credit_review.table_access import table_card
+    card = table_card(source().model_dump(mode='json'))
+    assert card['locator']['source_id']=='table1'
+    assert card['tables'][0]['segment']['part_count']==2
 
 
 def test_explicit_read_restores_values_and_is_shared(tmp_path):
