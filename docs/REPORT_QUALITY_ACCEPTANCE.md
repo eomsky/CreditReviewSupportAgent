@@ -37,3 +37,29 @@ Use identical sources, prompts and decoding limits for base/adapter comparisons.
 Select on validation cases; reserve held-out test cases for the final comparison.
 Balance execution order and exclude a separately recorded warmup. Preserve failed
 and timed-out runs, not just the fastest successful result.
+
+## Depth observed in the supplied reference reports
+
+The two reference examples connect a facility's purpose and before/after debt
+structure to repayment capacity. Their useful depth includes:
+
+- Sources and uses reconcile; refinancing, new cash, shareholder repayment and
+  debt-to-equity conversion are distinguished. Conditions precedent, evidence of
+  disbursement and remaining implementation milestones affect the conclusion.
+- Industry demand, selling prices, utilization and planned capacity are linked
+  to revenue and margin assumptions. Forecasts are separated from realized data;
+  peer comparisons and downside sensitivities test those assumptions.
+- Accounting losses, impairments, depreciation, cash investment and actual debt
+  service are distinguished. Interest capitalization or payment deferral does
+  not automatically eliminate the eventual cash obligation.
+- Parent support and contingent liabilities are traced through specific entities,
+  obligations and timing. Share ownership, asset value or group reputation alone
+  is not an available repayment source.
+- Borrower repayment, collateral recovery, bank exposure, covenants and bank
+  profitability answer different questions and require their own evidence.
+
+These are evaluation dimensions, not permission to invent missing application
+terms or copy reference-company facts into another borrower report. Reference
+wording is not automatically ground truth: material reassurance still requires
+source and cash-flow verification. Reference images remain private and are not
+part of the SFT dataset.

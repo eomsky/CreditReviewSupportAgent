@@ -96,3 +96,12 @@ and a real generation before changing the app's selected model.
 
 From Codespaces, `python scripts/select_llm_model.py` lists the served IDs.
 Passing one exact ID selects base or adapter without changing stored weights.
+
+`evaluate_served.py DATA NEW_OUTPUT --connection PRIVATE_CONNECTION --model BASE
+--model ADAPTER --split validation` compares already served models with the same
+messages and greedy decoding. It records streamed first-text time, final time,
+finish reason, usage, raw outputs and factor/source checks. Each request has an
+absolute asynchronous deadline, and an interrupted stream retains partial text
+without being counted as complete. Use the test split only after selection.
+The evaluator does not constrain JSON decoding, so learned formatting failures
+remain observable. It never changes the app's selected model.
