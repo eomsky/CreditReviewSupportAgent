@@ -116,7 +116,9 @@ def main():
     for mode in modes:
         subset=[r for r in results if r['mode']==mode]
         recalls=[r['factor_recall'] for r in subset if r.get('factor_recall') is not None]
-        summary['modes'][mode]={'completed':sum('text' in r for r in subset),
+        summary['modes'][mode]={'responses_recorded':sum('text' in r for r in subset),
+          'completed':sum(r.get('ended_with_eos',False) and not r.get('time_limit_reached',False)
+                          and not r.get('token_limit_reached',False) for r in subset),
           'total_seconds':sum(r['seconds'] for r in subset),
           'mean_factor_recall':sum(recalls)/len(recalls) if recalls else None,
           'numeric_flagged_records':sum(bool(r.get('unsupported_numeric_candidates')) for r in subset),
