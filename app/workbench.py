@@ -24,11 +24,13 @@ import credit_review.models as models_module
 import credit_review.harness as harness_module
 import credit_review.reporting as reporting_module
 import credit_review.retrieval as retrieval_module
+import credit_review.table_access as table_access_module
 
 # Streamlit preserves imported modules between reruns. Refresh the small,
 # stateless client so a deployed connection fix applies without losing uploads.
 importlib.reload(models_module)
 ColabClient = importlib.reload(llm_module).ColabClient
+importlib.reload(table_access_module)
 importlib.reload(retrieval_module)
 Harness = importlib.reload(harness_module).Harness
 importlib.reload(reporting_module)

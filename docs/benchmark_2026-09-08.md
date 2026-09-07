@@ -1,5 +1,30 @@
 # Bounded live benchmark, 2026-09-08
 
+## Follow-up: focused evidence and prepared continuation
+
+Code `ea00b53`, deployed to Codespaces. Same saved PDF extraction and 60-second
+watchdog. Run `run_b1b6e803b1b84d75b075a09730332d91`.
+
+- First saved factor opinion: **26.287237792002998 seconds** (worker measurement;
+  excludes upload/extraction and browser rendering).
+- At **60.0323310140011 seconds**, watchdog terminated worker, exit -9 confirmed.
+- **5/30** opinions saved: F01, F02, F04, F06, F09. Previous run: 0/30 at 60 seconds.
+- Five completed LLM calls recorded. Saved replies: 14 read, 5 conclude, 2 search.
+  These action counts cover different factor progress from the previous run and
+  must not be presented as a like-for-like search cost reduction.
+- Full report still incomplete. Opinion storage and reference checks do not
+  establish semantic correctness or sufficient analytical depth. Observed business
+  and market-position opinions remain largely descriptive.
+- Local suite: **67 tests passed in 3.67s**. UI reload adjustment: its 3 existing
+  tests passed in 1.63s. No extended inference run performed.
+
+Fixes preserve the factor-specific evidence window when searching prior work,
+retain complete explicitly read passages, use document vocabulary for initial
+retrieval, locally preload the top matched table for numeric questions, and allow
+one early grouped continuation after retrieval. Original source artifacts and
+checks remain intact. The live test demonstrates earlier partial output, not the
+one-minute full-report target.
+
 ## Follow-up: fused inquiry and action
 
 Code `9b17e7f`, deployed to Codespaces before the run. Same source extraction and
