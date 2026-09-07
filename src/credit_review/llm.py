@@ -165,7 +165,8 @@ class ColabClient:
             choices.append(branch)
         schema['$defs']['Action'] = {'anyOf':choices}
         return self.complete(prompt, context, schema,
-            request_options={'chat_template_kwargs':{'enable_thinking':False}})
+            request_options={'chat_template_kwargs':{'enable_thinking':False}, 'response_format':None,
+                             'structured_outputs':{'json':schema, 'disable_any_whitespace':True}})
 
     def stream_report(self, context):
         prompt = ('확보된 분석을 기업여신 심사보고서 본문으로 편집한다. 한국어 Markdown 문단과 필요한 표만 출력한다. '
