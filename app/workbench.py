@@ -48,6 +48,7 @@ with st.sidebar:
             if len(ids) != len(set(ids)):
                 raise ValueError("중복 문서/근거 ID가 있습니다")
             st.session_state.harness = Harness.create(ROOT, case_id, cutoff, sources, client, mode, embedding)
+            st.session_state.search_hits = []
         except Exception as error:
             st.error(str(error))
     saved = sorted(ROOT.glob("cases/*/runs/*/state.json"))
@@ -57,6 +58,7 @@ with st.sidebar:
             meta = json.loads(selected.read_text(encoding="utf-8"))
             client = DemoClient() if meta["mode"] == "DEMO" else ColabClient()
             st.session_state.harness = Harness.resume(ROOT, meta["case_id"], meta["run_id"], client)
+            st.session_state.search_hits = []
         except Exception as error:
             st.error(str(error))
 

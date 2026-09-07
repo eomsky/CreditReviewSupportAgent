@@ -13,13 +13,16 @@ class ColabClient:
             raise ValueError("Set LLM_BASE_URL and LLM_MODEL in the Codespaces environment")
 
     def complete(self, system: str, context: dict) -> str:
+        serialized = json.dumps(context, ensure_ascii=False)
+        if len(serialized) > int(os.environ.get("LLM_MAX_CONTEXT_CHARS", "120000")):
+            raise ValueError("Context exceeds configured budget; narrow evidence before retrying")
         key = os.environ.get("LLM_API_KEY", "")
         headers = {"Authorization": f"Bearer {key}"} if key else {}
         with httpx.Client(timeout=180) as client:
             response = client.post(self.base_url + "/chat/completions", headers=headers,
                 json={"model": self.model, "temperature": 0.1, "max_tokens": 6000,
                       "messages": [{"role": "system", "content": system},
-                                   {"role": "user", "content": json.dumps(context, ensure_ascii=False)}]})
+                                   {"role": "user", "content": serialized}]})
             response.raise_for_status()
             return response.json()["choices"][0]["message"]["content"]
 
