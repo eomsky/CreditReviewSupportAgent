@@ -102,9 +102,14 @@ if st.query_params.get('benchmark') == 'latest':
         else:
             st.warning('이번 실행이 종료되었습니다. 현재까지 작성된 의견을 표시합니다.')
         st.markdown(snapshot['report'])
+        if not snapshot['active']:
+            st.download_button('심사보고서 다운로드',snapshot['report'],'credit_review_report.md',mime='text/markdown')
         if not snapshot['opinions']:
             st.caption('자료를 분석하고 있습니다. 첫 의견을 기다리는 중입니다.')
     live_benchmark_report()
+    archive=ROOT/'benchmarks'/'overnight_v1_evidence.zip'
+    if st.query_params.get('archive')=='1' and archive.exists():
+        st.download_button('검증 기록 다운로드',archive.read_bytes(),archive.name,mime='application/zip')
     st.stop()
 saved = sorted(ROOT.glob("cases/*/runs/*/state.json"), key=lambda p: p.stat().st_mtime_ns, reverse=True)
 if "harness" not in st.session_state and saved:
