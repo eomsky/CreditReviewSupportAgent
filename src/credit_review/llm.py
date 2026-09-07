@@ -184,7 +184,7 @@ class ColabClient:
         references(judgement['calculation_ids'], context.get('calculations',{}))
         references(judgement['requirements']['additionalProperties'], evidence)
         references(schema['$defs']['Dataset']['properties']['cell_sources']['items']['additionalProperties'], evidence)
-        payloads = {'plan':'inquiry','reframe':'inquiry','search':'query','read':'source_ids',
+        payloads = {'search':'query','read':'source_ids',
                     'dataset':'dataset','calculate':'calculation','reuse':'reuse_dataset_ids','conclude':'judgement'}
         choices = []
         for action, payload in payloads.items():
@@ -194,17 +194,29 @@ class ColabClient:
             branch = {'type':'object','additionalProperties':False,
                       'properties':{'action':{'type':'string','enum':[action]},'reason':{'type':'string'},payload:field},
                       'required':['action','reason',payload]}
-            if action == 'conclude':
-                branch['properties']['inquiry'] = {'$ref':'#/$defs/Inquiry'}
+            branch['properties']['inquiry'] = {'$ref':'#/$defs/Inquiry'}
             choices.append(branch)
         schema['$defs']['Action'] = {'anyOf':choices}
-        schema['$defs']['FactorAction'] = {'anyOf':[
-            {'type':'object','additionalProperties':False,
-             'properties':{'factor_id':{'type':'string','enum':[fid]},
-                 'action':{'anyOf':[branch for branch in choices
-                     if branch['properties']['action']['enum'][0] in factor.get('available_actions', payloads)]}},
-             'required':['factor_id','action']}
-            for fid, factor in context['factors'].items()]}
+        from copy import deepcopy
+        factor_choices = []
+        for fid, factor in context['factors'].items():
+            branches = []
+            state = factor.get('state', {})
+            for choice in choices:
+                name = choice['properties']['action']['enum'][0]
+                if name not in factor.get('available_actions', payloads):
+                    continue
+                branch = deepcopy(choice)
+                # First turn defines the inquiry AND takes a useful action.
+                # A stalled lookup requires an explicit changed inquiry.
+                if not state.get('inquiry') or (name == 'search' and state.get('retrieval_stalls', 0) >= 2):
+                    branch['required'].append('inquiry')
+                branches.append(branch)
+            factor_choices.append({'type':'object','additionalProperties':False,
+                'properties':{'factor_id':{'type':'string','enum':[fid]},
+                              'action':{'anyOf':branches}},
+                'required':['factor_id','action']})
+        schema['$defs']['FactorAction'] = {'anyOf':factor_choices}
         return self.complete(prompt, context, schema,
             request_options={'chat_template_kwargs':{'enable_thinking':False}, 'response_format':None,
                              'structured_outputs':{'json':schema, 'disable_any_whitespace':True}})

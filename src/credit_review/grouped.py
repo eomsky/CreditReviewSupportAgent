@@ -19,6 +19,9 @@ def group_context(worker, ids):
     sources, datasets, calculations, factors, related, reusable = {}, {}, {}, {}, {}, {}
     for fid in ids:
         context = worker.context(fid)
+        context['available_actions'] = [a for a in context['available_actions'] if a not in ('plan', 'reframe')]
+        if worker.state.factors[fid].reframes < 3 and 'search' not in context['available_actions']:
+            context['available_actions'].append('search')  # requires a changed inquiry after stalled retrieval
         for source in context.pop('sources')[:2]:
             source_limit = getattr(worker, 'source_excerpt_chars', 1200)
             if not source.get('values_loaded') and len(source['text']) > source_limit:
@@ -62,13 +65,18 @@ def apply_group_reply(worker, ids, raw, parent, on_status=None):
     for item in reply.actions:
         fid, action = item.factor_id, item.action
         f = worker.state.factors[fid]
+        if action.action in ('plan', 'reframe'):
+            raise ValueError('Attach inquiry to search/read/dataset/calculate/reuse/conclude; no planning-only batch action')
+        if action.inquiry:
+            if not f.inquiry:
+                worker.apply(fid, Action(action='plan', reason=action.reason, inquiry=action.inquiry), parent)
+            elif action.inquiry != f.inquiry:
+                worker.apply(fid, Action(action='reframe', reason=action.reason, inquiry=action.inquiry), parent)
         if action.action not in worker.context(fid)['available_actions']:
             raise ValueError('Unavailable group action')
         if on_status:
             on_status(fid, action.action, action.inquiry.question if action.inquiry else
                       (f.inquiry.question if f.inquiry else '근거·공통 자료 검토'))
-        if action.inquiry and not f.inquiry and action.action != 'plan':
-            worker.apply(fid, Action(action='plan', reason=action.reason, inquiry=action.inquiry), parent)
         f.steps += 1
         memory = getattr(worker, 'shared_work', None)
         result = memory.reuse_exact(fid, action, parent) if memory else None
@@ -187,7 +195,7 @@ def analyse_grouped(h, targets, concurrency=2, metrics=None, rounds=6, time_budg
 
     def progress():
         # Planning alone is not evidence of useful progress.
-        return tuple((fid, tuple(f.evidence_ids), tuple(f.dataset_ids), tuple(f.calculation_ids),
+        return tuple((fid, tuple(f.evidence_ids), tuple(f.read_source_ids), tuple(f.dataset_ids), tuple(f.calculation_ids),
             f.judgement.model_dump_json() if f.judgement else None)
             for fid, f in h.state.factors.items() if fid in targets)
 

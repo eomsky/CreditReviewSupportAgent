@@ -77,13 +77,43 @@ def test_batch_schema_requires_nonnull_payload_for_every_action():
     client.complete = complete
     client.next_actions({'factors':{'F01':{}}})
     branches = captured['$defs']['Action']['anyOf']
-    assert len(branches) == 8
+    assert len(branches) == 6
     for branch in branches:
         assert len(branch['required']) == 3
         payload = branch['required'][-1]
         assert 'anyOf' not in branch['properties'][payload]
-    plan = next(b for b in branches if b['properties']['action']['enum']==['plan'])
-    assert 'inquiry' in plan['required']
+    assert all(b['properties']['action']['enum'][0] not in ('plan','reframe') for b in branches)
+    per_factor = captured['$defs']['FactorAction']['anyOf'][0]['properties']['action']['anyOf']
+    assert all('inquiry' in b['required'] for b in per_factor)
+
+
+def test_fused_inquiry_reads_in_same_reply_and_reframes_with_action(tmp_path):
+    h = make(tmp_path)
+    sid = 'demo_cash'
+    inquiry = {'question':'Check liquidity?', 'hypotheses':['cash may be insufficient'],
+        'evidence_tests':['cash and maturities'], 'change_reason':'Initial assessment'}
+    reply = {'actions':[{'factor_id':'F13','action':{'action':'read','reason':'values',
+        'source_ids':[sid], 'inquiry':inquiry}}]}
+    apply_group_reply(h, ['F13'], json.dumps(reply), 'test')
+    f = h.state.factors['F13']
+    assert f.inquiry.question == 'Check liquidity?' and sid in f.read_source_ids
+    assert f.steps == 1
+    f.retrieval_stalls = 2
+    inquiry['question'] = 'Check debt maturity concentration?'
+    inquiry['change_reason'] = 'Cash alone does not establish repayment ability'
+    reply['actions'][0]['action'] = {'action':'search','query':'maturity','reason':'refocus','inquiry':inquiry}
+    apply_group_reply(h, ['F13'], json.dumps(reply), 'test')
+    assert f.reframes == 1 and f.steps == 2
+    assert any(a['stage']=='search' and a['payload']['query']=='maturity' for a in h.store.artifacts())
+
+
+def test_batch_rejects_planning_only_response(tmp_path):
+    h = make(tmp_path)
+    with pytest.raises(ValueError, match='no planning-only'):
+        apply_group_reply(h, ['F13'], json.dumps({'actions':[{'factor_id':'F13','action':{
+            'action':'plan','reason':'plan', 'inquiry':{'question':'q','hypotheses':['h'],
+                'evidence_tests':['e'],'change_reason':'initial'}}}]}), 'test')
+    assert h.state.factors['F13'].inquiry is None
 
 
 def test_group_dataset_and_executed_result_share_without_reextraction(tmp_path):
