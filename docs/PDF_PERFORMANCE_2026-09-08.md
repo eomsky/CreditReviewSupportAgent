@@ -20,6 +20,14 @@ one run, not a latency percentile. Serialization, upload, OCR fallback, indexing
 LLM generation and UI delivery are outside this timing sum. This does not yet
 establish a complete report within 120 seconds.
 
+A subsequent `benchmark_ingestion.py` run exercised the actual isolated PDF
+worker, artifact serialization and search preparation: extraction 52.009 s,
+index 1.013 s, total 53.022 s, 1,345 source objects. The earlier same-document
+measurement was 89.314 s for extraction plus indexing. This is approximately
+36.3 s less (40.6%); the processes used the same Codespaces environment but ran
+at different times. Both exclude upload and LLM generation, and filesystem/model
+caches may be warm even though extracted-document caches are not reused.
+
 Reproduce with `scripts/profile_pdf.py PDF OUTPUT --cached-builder`, then run
 the original builder with `--master OUTPUT/MASTER.json` into a different output
 directory. Compare parsed JSON for both `MASTER.json` and `chunks.json`.
