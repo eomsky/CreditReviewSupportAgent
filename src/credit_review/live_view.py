@@ -24,7 +24,15 @@ def latest_snapshot(root):
     summary_path = path.parent/'benchmark_summary.json'
     summary = json.loads(summary_path.read_text(encoding='utf-8')) if summary_path.exists() else {}
     active = (path.parent/'.run.lock').exists() and not summary
-    finished = summary.get('report_completed') or summary.get('stage') == 'finished'
+    finished = summary.get('report_completed') or (summary.get('stage') == 'finished'
+        and all(f.judgement for f in state.factors.values()))
+    report = report_document(h)
+    stream_path=path.parent/'report_stream.json'
+    if stream_path.exists():
+        stream=json.loads(stream_path.read_text(encoding='utf-8'))
+        if stream.get('status')=='RUNNING' and stream.get('text'):
+            report['sections']=[s for s in report['sections'] if s['title']!='종합심사의견']
+            report['sections'].append({'title':'종합심사의견','paragraphs':[{'heading':'','text':stream['text']}],'tables':[]})
     return {'run_id':state.run_id, 'active':active, 'finished':bool(finished),
-            'report':report_markdown(report_document(h)),
+            'report':report_markdown(report),
             'opinions':sum(bool(f.judgement) for f in state.factors.values())}

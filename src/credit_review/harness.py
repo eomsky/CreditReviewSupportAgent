@@ -345,9 +345,14 @@ class Harness:
             'unanalysed':[fid for fid in FACTORS if fid not in completed]}
         parent=self.store.put('direct_synthesis_input',context)
         chunks=[]
+        from time import monotonic
+        last_snapshot=0
         try:
             for chunk in self.client.stream_report(context):
                 chunks.append(chunk)
+                if monotonic()-last_snapshot>.5:
+                    atomic_json(self.store.path/'report_stream.json',{'status':'RUNNING','text':''.join(chunks)})
+                    last_snapshot=monotonic()
                 yield chunk
             text=''.join(chunks).strip()
             if not text: raise ValueError('Empty synthesis')
@@ -356,7 +361,9 @@ class Harness:
                 'unanalysed':context['unanalysed'],
                 'verification':'editorial synthesis of supplied findings; semantic review pending'},[parent])
             self.save()
+            atomic_json(self.store.path/'report_stream.json',{'status':'COMPLETE','text':text})
         except Exception:
+            atomic_json(self.store.path/'report_stream.json',{'status':'INTERRUPTED','text':''.join(chunks)})
             self.store.put('narrative_partial',{'factor_id':None,'text':''.join(chunks),'status':'INTERRUPTED'},[parent])
             raise
 

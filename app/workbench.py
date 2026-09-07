@@ -86,6 +86,8 @@ def show_report(h):
 
 st.set_page_config(page_title="기업여신 심사보고서", layout="wide")
 if st.query_params.get('benchmark') == 'latest':
+    import credit_review.live_view as live_view_module
+    importlib.reload(live_view_module)
     from credit_review.live_view import latest_snapshot
     @st.fragment(run_every=1)
     def live_benchmark_report():

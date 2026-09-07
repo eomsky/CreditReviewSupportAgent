@@ -1,5 +1,6 @@
 """Compact, source-bound contracts for substantive bundle inference."""
 import json
+import os
 from copy import deepcopy
 from .prepared import Foundation, BundleReview
 from .batch_protocol import pair_dataset_schema, unpack_dataset_rows
@@ -100,5 +101,6 @@ def review_bundle(client, context):
         '다른 파트 prior_findings와 공유 datasets/calculations에서 먼저 해결하고 부족한 구체 질문만 검색한다. '
         '추가 요청이 있어도 현재 근거에 기반한 조건부 finding을 작성한다. final_pass이면 확보된 범위에서 마무리한다. '
         '출력은 압축 JSON이며 인사말·진행 안내·내부 사고 전문은 제외한다.')
+    thinking = bool(context.get('review_pass')) and os.environ.get('CREDIT_REVIEW_THINKING','0')=='1'
     return restore(client.complete(prompt,context,schema,request_options={
-        'max_tokens':6000,'chat_template_kwargs':{'enable_thinking':False}}))
+        'max_tokens':6000,'chat_template_kwargs':{'enable_thinking':thinking}}))
