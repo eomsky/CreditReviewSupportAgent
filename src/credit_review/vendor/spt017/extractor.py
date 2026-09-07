@@ -7,10 +7,11 @@ import fitz
 
 class PDFExtractor:
     """원문 좌표와 물리 표 기하를 보존하는 1단계 추출기."""
-    def extract(self, pdf_path):
+    def extract(self, pdf_path, start_page=0, end_page=None):
         pages=[]; physical_tables=[]
         with fitz.open(pdf_path) as doc:
-            for pi,page in enumerate(doc):
+            for pi in range(start_page, len(doc) if end_page is None else min(end_page,len(doc))):
+                page=doc[pi]
                 pno=pi+1; blocks=[]; sizes=[]
                 raw=page.get_text("dict",flags=fitz.TEXTFLAGS_DICT)
                 for bi,b in enumerate(raw.get("blocks",[])):

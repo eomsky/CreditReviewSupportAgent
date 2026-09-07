@@ -43,7 +43,8 @@ StructuralBuilder = install_v017_builder(install_v016_builder(install_v015_build
 
 
 def extract_document(path):
-    raw = PDFExtractor().extract(str(path))
+    from credit_review.pdf_parallel import extract_raw
+    raw = extract_raw(path,workers=int(os.environ.get('CREDIT_PDF_WORKERS','1')))
     builder = StructuralBuilder
     if os.environ.get('CREDIT_SPT_CACHE', '1') == '1':
         from credit_review.spt_inference_cache import CachedStructuralBuilder
