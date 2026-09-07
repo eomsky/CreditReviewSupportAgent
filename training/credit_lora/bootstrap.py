@@ -2,6 +2,7 @@
 import argparse
 import json
 import subprocess
+import shutil
 from pathlib import Path
 
 p=argparse.ArgumentParser()
@@ -9,8 +10,9 @@ p.add_argument('--inference-python',default='/content/credit_llm_server/venv/bin
 p.add_argument('--environment',default='/content/credit_training/venv')
 a=p.parse_args()
 root=Path(a.environment)
-if not (root/'bin/python').exists():
-    subprocess.run([a.inference_python,'-m','venv',str(root)],check=True)
+uv=shutil.which('uv')
+if not uv: raise RuntimeError('uv is required to seed the isolated training environment')
+subprocess.run([uv,'venv','--allow-existing','--seed','--python',a.inference_python,str(root)],check=True)
 inference_sites=json.loads(subprocess.check_output([a.inference_python,'-c',
     'import site,json; print(json.dumps(site.getsitepackages()))'],text=True))
 python=str(root/'bin/python')
