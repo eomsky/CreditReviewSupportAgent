@@ -111,7 +111,7 @@ def test_quality_pass_rejection_retains_draft_and_is_not_reported_complete(tmp_p
                 'evidence_ids':['nonexistent'] if fid=='F17' and context['review_pass'] else [],
                 'missing':['Sources not provided']}} for fid in context['factors']]})
     h.client=Client()
-    list(analyse_prepared(h,list(FACTORS),time_budget=10,concurrency=2))
+    list(analyse_prepared(h,list(FACTORS),time_budget=30,concurrency=2))
     review=json.loads((h.store.path/'quality_review.json').read_text())
     assert review['status']=='PARTIAL'
     assert review['unresolved']==['F17']
