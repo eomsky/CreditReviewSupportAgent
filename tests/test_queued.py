@@ -116,5 +116,9 @@ def test_server_token_usage_is_retained_by_measured_client():
             return '{}'
     metrics = Measurements()
     MeasuredClient(Client(), metrics).next_actions({})
-    assert metrics.snapshot()['token_usage'] == [
-        {'prompt_tokens':100, 'completion_tokens':20, 'total_tokens':120}]
+    usage = metrics.snapshot()['token_usage']
+    assert len(usage) == 1
+    assert {k:usage[0][k] for k in ('prompt_tokens','completion_tokens','total_tokens')} == {
+        'prompt_tokens':100, 'completion_tokens':20, 'total_tokens':120}
+    assert usage[0]['kind'] == 'llm_next_actions'
+    assert usage[0]['call_id'] == metrics.snapshot()['operations'][0]['call_id']
