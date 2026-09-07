@@ -53,6 +53,7 @@ print("서버 환경 준비 완료")
 '''
 
 SERVE = '''# 3. Gemma 4 시작 → 실제 응답 확인 → Codespaces 연결 파일 생성
+os.environ["PATH"] = str(env / "bin") + os.pathsep + os.environ["PATH"]
 headers = {"Authorization": f"Bearer {API_KEY}"}
 def call(path, payload=None, timeout=10):
     data = json.dumps(payload).encode() if payload is not None else None
