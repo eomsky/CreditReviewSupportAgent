@@ -209,7 +209,7 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
                     submit('bundle',ids,extra,final=True)
                 elif not pending and not jobs and not followups and not review_done:
                     review_done=True
-                    critical = ['F17','F22','F24'] if os.environ.get('CREDIT_REVIEW_THINKING','0')=='1' else ['F02','F05','F17','F20','F22','F24','F29']
+                    critical = ['F14','F17','F22','F24','F25'] if os.environ.get('CREDIT_REVIEW_THINKING','0')=='1' else ['F02','F05','F17','F20','F22','F24','F29']
                     ids=[f for f in critical
                          if f in targets and h.state.factors[f].judgement]
                     if ids and deadline-monotonic()>15:
