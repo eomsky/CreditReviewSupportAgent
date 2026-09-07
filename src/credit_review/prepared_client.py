@@ -125,7 +125,15 @@ def prepare_bound_financial(client,context):
     raw=client.complete(prompt,indexed,schema,request_options={
         'max_tokens':2800,'chat_template_kwargs':{'enable_thinking':False}})
     bound=BoundFoundation.model_validate_json(restore(raw))
-    data=materialize(bound,matrices)
+    try:
+        data=materialize(bound,matrices)
+    except Exception as exc:
+        from pathlib import Path
+        from uuid import uuid4
+        from .store import atomic_json
+        atomic_json(Path(os.environ.get('CREDIT_WORKSPACE','workspace'))/'binding_failures'/(uuid4().hex+'.json'),
+                    {'error':str(exc),'source_bindings':bound.model_dump()})
+        raise
     return json.dumps({'datasets':[{'dataset':data.model_dump(),
                       'after_dataset':bound.after_dataset.model_dump() if bound.after_dataset else None}],
                       'limitations':bound.limitations,'source_bindings':bound.model_dump()},ensure_ascii=False)
