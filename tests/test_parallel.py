@@ -131,3 +131,13 @@ def test_generated_schema_only_accepts_real_reference_ids(monkeypatch):
     assert received['properties']['source_ids']['items']['enum'] == ['page_1']
     assert received['$defs']['Dataset']['properties']['cell_sources']['items']['additionalProperties']['items']['enum'] == ['page_1']
     assert 'calculate' not in received['properties']['action']['enum']
+
+def test_focused_context_keeps_old_evidence_readable(tmp_path):
+    h = make(tmp_path)
+    ids = [s.id for s in demo_sources() if s.published_at <= h.state.review_date]
+    h.state.factors['F24'].evidence_ids = ids
+    h.state.factors['F24'].recent_source_ids = ids[:1]
+    context = h.context('F24')
+    assert {s['id'] for s in context['sources']} == set(ids[:1])
+    assert context['state']['evidence_ids'] == ids
+    assert h.retriever.read(ids)

@@ -41,9 +41,15 @@ class Harness:
 
     def context(self, fid):
         factor = self.state.factors[fid]
-        return {"factor": FACTORS[fid], "state": factor.model_dump(mode="json"),
+        focused = (factor.recent_source_ids or factor.evidence_ids)[-6:]
+        rows = self.retriever.read(focused)
+        # Avoid repeating full parent pages beside each paragraph/table. Parents remain readable by ID.
+        sources = [{k: v for k, v in row.items() if k != "metadata"} for row in rows if row["id"] in focused]
+        return {"factor": FACTORS[fid], "state": {**factor.model_dump(mode="json", exclude={"failed_response"}),
+                    "failed_response": factor.failed_response[:2000] if factor.failed_response else None},
                 "review_date": str(self.state.review_date), "mode": self.state.mode,
-                "sources": self.retriever.read(factor.evidence_ids),
+                "sources": sources,
+                "source_window": "Only focused evidence is shown. Use read for earlier evidence_ids or parent_id; all IDs remain preserved.",
                 "datasets": {aid: self.store.get(aid)["payload"] for aid in factor.dataset_ids},
                 "calculations": {aid: self.store.get(aid)["payload"] for aid in factor.calculation_ids},
                 "related_findings": {k: v.judgement.model_dump(mode="json") for k, v in self.state.factors.items() if k != fid and v.judgement},
@@ -124,6 +130,7 @@ class Harness:
             else:
                 rows = self.retriever.read(action.source_ids)
                 payload = {"sources": rows}
+            f.recent_source_ids = [s["id"] for s in rows if s["id"] in action.source_ids] if action.action == "read" else [s["id"] for s in rows]
             f.evidence_ids = sorted(set(f.evidence_ids) | {s["id"] for s in rows})
             return self.store.put(action.action, payload, [parent_id])
         if action.action == "reuse":
@@ -183,7 +190,7 @@ class Harness:
         self.store.put("factor_checkpoint", old.model_dump(mode="json"))
         self.state.factors[fid] = FactorState(factor_id=fid, evidence_ids=old.evidence_ids,
             dataset_ids=old.dataset_ids, calculation_ids=old.calculation_ids, inquiry=old.inquiry,
-            reframes=old.reframes)
+            reframes=old.reframes, recent_source_ids=old.recent_source_ids)
         self.state.report_id = None
         self.store.event(action="reset_factor", factor_id=fid)
         self.save()

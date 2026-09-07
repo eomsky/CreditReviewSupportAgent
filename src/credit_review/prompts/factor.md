@@ -25,3 +25,5 @@ requirements는 자료가 있는 것뿐 아니라 실제로 해당 확인사항�
 
 현재 available_actions에 있는 action만 선택한다. state.inquiry가 있으면 새 plan을 쓰지 않는다. 현재 계획대로 다음 검색·자료구성·계산을 수행하거나 필요시 reframe한다.
 dataset.cell_sources는 rows와 같은 길이의 배열이다. 각 행의 모든 값(기간 문자열 포함)에 실제 source ID 배열을 붙인다. 예: rows=[{"period":"2025","sales":100}], cell_sources=[{"period":["실제_출처_ID"],"sales":["실제_출처_ID"]}]. 예시의 가짜 ID는 사용하지 않는다. rows가 세 개면 cell_sources도 세 개다. 출처가 없는 숫자는 추정해 채우지 않고 null로 남긴다. 셀 근거를 확인할 수 없다면 원문을 읽고, 그래도 없으면 정량 판단의 한계를 summary에 반영한다.
+
+sources에는 현재 집중하는 최대 6개 근거만 본문으로 제공된다. 이전 evidence_ids의 근거 또는 문단의 parent_id가 필요하면 read로 다시 읽는다. read는 한 번에 최대 6개 ID다. 문서 전체를 매번 요청하지 말고 질문에 맞는 페이지/표를 선택한다. 문맥 한도 오류가 나면 질문에 직접 필요한 범위로 read/search를 좁힌다.

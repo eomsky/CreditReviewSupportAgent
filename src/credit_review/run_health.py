@@ -7,7 +7,7 @@ from .store import atomic_json
 def service_failure(error):
     value = str(error).lower()
     return any(x in value for x in ("httpstatuserror", "server error", "client error", "connecterror",
-        "timeout", "timed out", "connection", "disconnected", "set llm_", "configured model"))
+        "llm request rejected", "timeout", "timed out", "connection", "disconnected", "set llm_", "configured model"))
 
 
 def explain_failure(error):
@@ -20,6 +20,8 @@ def explain_failure(error):
         return "LLM 서버 인증이 거부됐습니다. 현재 서버의 연결 파일을 다시 적용해야 합니다."
     if "timeout" in value or "timed out" in value:
         return "LLM 응답 대기시간을 초과했습니다. 서버 상태를 확인한 뒤 이어서 실행할 수 있습니다."
+    if "llm request rejected" in value:
+        return "LLM 서버가 요청 형식을 거부했습니다. 출력 형식과 서버 호환성을 확인해야 합니다."
     if service_failure(error):
         return "LLM 서버 연결이 끊겼거나 설정을 읽지 못했습니다. 연결 복구 후 이어서 실행할 수 있습니다."
     if "context" in value or "token" in value:
