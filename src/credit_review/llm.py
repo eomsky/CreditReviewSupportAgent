@@ -72,7 +72,8 @@ class ColabClient:
         with httpx.Client(timeout=180) as client:
             response = client.post(self.base_url + "/chat/completions", headers=headers,
                 json={"model": self.model, "temperature": 0.1, "max_tokens": 6000,
-                      "response_format": {"type": "json_schema", "json_schema": {"name": "action", "schema": schema}} if schema else {"type": "json_object"},
+                      "structured_outputs": {**({'json':schema} if schema else {'json_object':True}),
+                                             'disable_any_whitespace':True},
                       "messages": [{"role": "system", "content": system},
                                    {"role": "user", "content": serialized}], **(request_options or {})})
             if response.status_code == 400:
