@@ -1,8 +1,21 @@
 import json
 import os
+import re
 from pathlib import Path
 import httpx
 from .models import Action
+
+
+def structured_content(content):
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("LLM returned empty structured content")
+    content = content.strip()
+    fenced = re.fullmatch(r"```(?:json)?\s*\n(.*?)\n```", content, re.DOTALL | re.IGNORECASE)
+    if fenced:
+        content = fenced.group(1).strip()
+    if not isinstance(json.loads(content), dict):
+        raise ValueError("LLM response must be a JSON object")
+    return content
 
 
 class ColabClient:
@@ -33,10 +46,11 @@ class ColabClient:
         with httpx.Client(timeout=180) as client:
             response = client.post(self.base_url + "/chat/completions", headers=headers,
                 json={"model": self.model, "temperature": 0.1, "max_tokens": 6000,
+                      "response_format": {"type": "json_object"},
                       "messages": [{"role": "system", "content": system},
                                    {"role": "user", "content": serialized}]})
             response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"]
+            return structured_content(response.json()["choices"][0]["message"]["content"])
 
     def next_action(self, context: dict) -> str:
         prompt = (Path(__file__).parent / "prompts" / "factor.md").read_text(encoding="utf-8")

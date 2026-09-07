@@ -70,7 +70,7 @@ with st.sidebar:
     start = st.button("분석 시작", type="primary", disabled=not upload)
     resume = st.button("보고서 작성 계속", disabled="harness" not in st.session_state)
     message = st.session_state.get("generation_message")
-    if message:
+    if message and not (start or resume):
         st.error(message)
 
 h = st.session_state.get("harness")
