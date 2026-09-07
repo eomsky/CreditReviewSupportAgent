@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .calculations import DockerExecutor, validate_dataset
 from .evidence_scope import validate_source_scopes
+from .source_values import validate_table_values
 from .models import Action, Dataset, Calculation, FactorState, ReviewState
 from .registry import FACTORS
 from .evidence_queries import QUERIES, NUMERIC_FACTORS
@@ -198,6 +199,7 @@ class Harness:
                 self.retriever.read(sorted(refs))
                 validate_dataset(data, refs)
                 validate_source_scopes(data,{sid:self.retriever.sources[sid].model_dump(mode="json") for sid in refs})
+                validate_table_values(data,{sid:self.retriever.sources[sid].model_dump(mode="json") for sid in refs})
                 f.evidence_ids = sorted(set(f.evidence_ids) | refs)
                 if aid not in f.dataset_ids:
                     f.dataset_ids.append(aid)
@@ -208,6 +210,7 @@ class Harness:
             self.require_table_read(refs)
             df = validate_dataset(data, set(f.evidence_ids))
             validate_source_scopes(data,{sid:self.retriever.sources[sid].model_dump(mode='json') for sid in refs})
+            validate_table_values(data,{sid:self.retriever.sources[sid].model_dump(mode='json') for sid in refs})
             aid = self.store.put("dataset", data.model_dump(mode="json"), [parent_id])
             path = self.store.path / "datasets"
             path.mkdir(exist_ok=True)
@@ -237,6 +240,7 @@ class Harness:
                 validate_dataset(validated, set(f.evidence_ids))
                 refs={sid for row in validated.cell_sources for ids in row.values() for sid in ids}
                 validate_source_scopes(validated,{sid:self.retriever.sources[sid].model_dump(mode="json") for sid in refs})
+                validate_table_values(validated,{sid:self.retriever.sources[sid].model_dump(mode="json") for sid in refs})
             request = self.store.put("calculation_request", plan.model_dump(), [parent_id] + plan.dataset_ids)
             output = self.executor.execute(plan, datasets)
             aid = self.store.put("calculation", {"plan": plan.model_dump(), **output}, [request])
