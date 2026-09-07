@@ -8,6 +8,19 @@ import subprocess
 from tokenize_data import BASE, REVISION
 
 
+def compact_structured_command(command):
+    command=list(command)
+    flag='--structured-outputs-config'
+    if flag in command:
+        index=command.index(flag)+1
+        config=json.loads(command[index])
+        config.update(backend='xgrammar',disable_any_whitespace=True)
+        command[index]=json.dumps(config)
+    else:
+        command.extend([flag,json.dumps({'backend':'xgrammar','disable_any_whitespace':True})])
+    return command
+
+
 def adapter_arguments(adapters):
     specs=[]; names=set()
     for item in adapters:
@@ -46,6 +59,7 @@ def main():
         probe.settimeout(1)
         if probe.connect_ex((host,port))==0:
             raise RuntimeError('Inference port is already occupied; stop the intended server explicitly')
+    command=compact_structured_command(command)
     command.extend(adapter_arguments(args.adapter))
     args.output.mkdir(parents=True,exist_ok=True)
     log=args.output/'vllm_restored.log'

@@ -78,6 +78,7 @@ if not globals().get("server") or server.poll() is not None:
         "--host", "127.0.0.1", "--port", str(PORT), "--api-key", API_KEY,
         "--served-model-name", MODEL_ID, "--dtype", "bfloat16",
         "--reasoning-parser", "gemma4",
+        "--structured-outputs-config", '{"backend":"xgrammar","disable_any_whitespace":true}',
         "--gpu-memory-utilization", "0.90", "--max-model-len", str(CONTEXT_TOKENS),
         "--max-num-seqs", "4", "--max-num-batched-tokens", "8192",
         "--enable-prefix-caching", "--limit-mm-per-prompt", '{"image":0,"video":0,"audio":0}'

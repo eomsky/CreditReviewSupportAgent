@@ -71,7 +71,7 @@ def test_batch_schema_requires_nonnull_payload_for_every_action():
     client = object.__new__(ColabClient)
     captured = {}
     def complete(prompt, context, schema, **kwargs):
-        assert kwargs['request_options']['structured_outputs']['disable_any_whitespace'] is True
+        assert 'disable_any_whitespace' not in kwargs['request_options']['structured_outputs']
         captured.update(schema)
         return '{}'
     client.complete = complete
