@@ -35,3 +35,12 @@ directory. Compare parsed JSON for both `MASTER.json` and `chunks.json`.
 The frozen v1 tag remains unchanged. This optimization is on the subsequent
 development branch. The private benchmark artifacts retain source hashes and
 full outputs; source documents are not committed to the public repository.
+
+An optional page-process experiment (`CREDIT_PDF_WORKERS=2`, or profile option
+`--workers 2`) preserved the complete MASTER and chunks in the local 277-page
+comparison. A 35-page generated test also checks table geometry and page ordering.
+Local raw extraction changed from 15.277 s to 9.846 s, but Codespaces raw
+extraction took 29.814 s versus the earlier serial 28.685 s. The Codespaces
+structure step remained 15.851 s. There is no measured Codespaces benefit, so
+the default remains one extraction process. Do not extrapolate local parallel
+speedups to this constrained remote environment.
