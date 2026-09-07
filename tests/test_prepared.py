@@ -76,7 +76,9 @@ def test_foundation_wire_pairing_preserves_each_rows_sources():
             return json.dumps({'datasets':[{'dataset':{
                 'name':'cash','description':'cash','entity':'Example','scope':'CONSOLIDATED',
                 'value_type':'ACTUAL','columns':[{'name':'period','dtype':'string'},{'name':'cash','dtype':'number','unit':'KRW'}],
-                'period_column':'period','records':[{'values':{'period':'2025','cash':10},'sources':{'period':['R1'],'cash':['R1']}}]},
+                'period_column':'period','records':[{'cells':[
+                    {'column':'period','value':'2025','source_ids':['R1']},
+                    {'column':'cash','value':10,'source_ids':['R1']}]}]},
                 'after_dataset':None}], 'limitations':[]})
     reply=json.loads(prepare_financial(Client(),{'sources':{'source_id':{'text':'2025 cash 10 KRW'}}}))
     assert reply['datasets'][0]['dataset']['cell_sources']==[{'period':['source_id'],'cash':['source_id']}]

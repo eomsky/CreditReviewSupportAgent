@@ -38,3 +38,40 @@ def unpack_dataset_rows(raw):
             data['cell_sources'] = [r['sources'] for r in records]
     # No provenance is invented or broadcast. Normal Dataset validation still runs.
     return json.dumps(reply, ensure_ascii=False, separators=(',', ':'))
+
+
+def cell_dataset_schema(schema, source_ids):
+    """Place every raw value beside its provenance; avoid parallel free-form maps."""
+    pair_dataset_schema(schema)
+    cell = {'type':'object', 'additionalProperties':False,
+            'properties':{'column':{'type':'string','minLength':1},
+                          'value':{'anyOf':[{'type':'number'},{'type':'string'},
+                                            {'type':'boolean'},{'type':'null'}]},
+                          'source_ids':{'type':'array','items':{'type':'string','enum':list(source_ids)},
+                                        'minItems':1,'maxItems':3}},
+            'required':['column','value','source_ids']}
+    schema['$defs']['Dataset']['properties']['records'] = {
+        'type':'array','minItems':1,'maxItems':3,'items':{
+            'type':'object','additionalProperties':False,
+            'properties':{'cells':{'type':'array','minItems':1,'maxItems':8,'items':cell}},
+            'required':['cells']}}
+
+
+def unpack_cell_records(reply):
+    for item in reply.get('datasets', []):
+        data = item['dataset']
+        if 'rows' in data or 'cell_sources' in data:
+            raise ValueError('Ambiguous dataset row representations')
+        records = data.pop('records')
+        rows, provenance = [], []
+        for record in records:
+            row, refs = {}, {}
+            for cell in record['cells']:
+                name = cell['column']
+                if name in row:
+                    raise ValueError('Duplicate column in extracted record: '+name)
+                row[name], refs[name] = cell['value'], cell['source_ids']
+            rows.append(row)
+            provenance.append(refs)
+        data['rows'], data['cell_sources'] = rows, provenance
+    return reply
