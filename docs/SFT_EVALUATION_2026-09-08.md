@@ -125,3 +125,11 @@ source material, not only JSON validity or response speed. Keep the base availab
 as a selectable model and promote an adapter only if the measured quality warrants
 it. The untouched test comparison above is complete; its semantic failures remain
 recorded rather than being hidden by aggregate speed or JSON metrics.
+
+Final restored-server check at code `b249f33`, default concurrency 2 and cached
+sources: refined adapter took 107.65 seconds to terminate with zero valid factor
+judgements. A summary repeated the same sentence to the 6,000-token cap, and the
+foundation dataframe failed provenance validation. First-shape server compilation
+also occurred, but does not explain the repeated content. Base on the same server
+then completed 30 factors and synthesis in 91.20 seconds. The app remains on base;
+this adapter is retained solely for explicit testing and recovery.
