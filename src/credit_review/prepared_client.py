@@ -43,10 +43,13 @@ def prepare_financial(client, context):
         '원문에서 확인된 열만 사용하고 result에 JSON 직렬화 가능한 계산 결과를 저장한다. '
         '계산 가능한 증감률·마진·부채비율·현금흐름/CAPEX 등 여러 분석용 지표를 한 번에 계산한다. '
         '분모 0, 결측은 null로 유지한다. 산출값은 단위와 기간을 표시한다. '
-        '데이터셋은 최대 3개, 각 3행 정도의 필요한 핵심 항목으로 구성한다. 불확실성은 limitations에 보존한다. '
+        '데이터셋은 정확히 하나 이하, 최근 2개년 2행, 기간 열과 핵심 숫자 열 최대 7개로 구성한다. '
+        '매출/영업이익/부채/자본/현금/영업현금흐름/차입금을 우선한다. 제공되지 않은 열은 제외한다. '
+        'after_dataset 코드는 df 열에 대한 벡터 연산으로 간결히 작성하고 기존 수치를 재기입하지 않는다. '
+        '불확실성은 limitations에 짧게 보존한다. '
         '추출/계산 계획만 작성하며 계산 결과를 예측해 판단하지 않는다. 압축 JSON만 출력한다.')
     raw=client.complete(prompt,context,schema,request_options={
-        'max_tokens':5000,'chat_template_kwargs':{'enable_thinking':False}})
+        'max_tokens':2800,'chat_template_kwargs':{'enable_thinking':False}})
     reply=json.loads(restore(raw))
     wire={'actions':[{'action':{'action':'dataset','dataset':item['dataset']}} for item in reply.get('datasets',[])]}
     decoded=json.loads(unpack_dataset_rows(json.dumps(wire)))

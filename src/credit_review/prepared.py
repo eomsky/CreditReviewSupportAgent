@@ -25,7 +25,7 @@ class PreparedDataset(Model):
 
 
 class Foundation(Model):
-    datasets: list[PreparedDataset] = Field(default_factory=list, max_length=3)
+    datasets: list[PreparedDataset] = Field(default_factory=list, max_length=1)
     limitations: list[str] = Field(default_factory=list)
 
 
@@ -65,6 +65,13 @@ def evidence_pack(h, ids, extra=None, budget=42000):
     packed, used = {}, 0
     for row, score in sorted(ranked.values(), key=lambda v:-v[1]):
         source = prompt_source(row, loaded=True)
+        # Loaded Markdown already contains row/column labels. Keep scope and
+        # provenance but do not send a second structural copy of every label.
+        card = source.get('table_index')
+        if card:
+            for table in card['tables']:
+                table.pop('rows', None)
+                table.pop('columns', None)
         size = len(json.dumps(source, ensure_ascii=False))
         if used+size > budget:
             continue  # Never label a truncated body as fully read.
@@ -118,7 +125,7 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
             'finished':sum(bool(h.state.factors[f].judgement) for f in targets),'total':len(targets),'metrics':metrics.snapshot()}
 
     def submit(kind, ids, extra=None, final=False):
-        context=evidence_pack(h,ids,budget=52000) if kind=='foundation' else review_context(h,ids,extra)
+        context=evidence_pack(h,ids,budget=32000) if kind=='foundation' else review_context(h,ids,extra)
         if kind!='foundation': context['final_pass']=final
         parent=h.store.put('prepared_'+kind+'_input',context)
         future=pool.submit(getattr(h.client,'prepare_financial' if kind=='foundation' else 'review_bundle'),context)
