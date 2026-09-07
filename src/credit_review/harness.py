@@ -9,6 +9,7 @@ from pathlib import Path
 from .calculations import DockerExecutor, validate_dataset
 from .models import Action, Dataset, FactorState, ReviewState
 from .registry import FACTORS
+from .evidence_queries import QUERIES, NUMERIC_FACTORS
 from .table_access import prompt_source, table_card
 from .retrieval import Retriever
 from .store import Store, atomic_json, json_text
@@ -50,7 +51,7 @@ class Harness:
         # Bound the source window without deleting the underlying source artifacts.
         # Mark excerpts explicitly so their absence cannot be interpreted as evidence.
         for source in sources:
-            if not source.get('values_loaded') and len(source['text']) > 6500:
+            if not source.get('read_complete') and len(source['text']) > 6500:
                 source['text'] = source['text'][:6500]
                 source['excerpt_only'] = True
                 source['omission_note'] = 'Excerpt only; search a focused child passage before using omitted table rows or notes.'
@@ -79,10 +80,20 @@ class Harness:
         factor = self.state.factors[fid]
         if factor.steps or factor.evidence_ids or factor.judgement:
             return
-        query = ('회사의 개요 법적 상업적 명칭 설립일 본점 주요사업'
-                 if fid == 'F01' else FACTORS[fid]['name'])
+        query = QUERIES.get(fid, FACTORS[fid]['name'])
         parent = self.store.put('evidence_prefetch', {'factor_id': fid, 'query': query})
         self.apply(fid, Action(action='search', query=query, reason='Initial evidence candidates'), parent)
+        focused = list(factor.recent_source_ids)
+        # Loading a known needed table is local retrieval, not an LLM routing turn.
+        # Keep all other candidates discoverable and require source/semantic checks.
+        if fid in NUMERIC_FACTORS:
+            table = next((row['id'] for row in self.retriever.read(focused[:2])
+                          if row['id'] in focused[:2] and table_card(row)), None)
+            if table:
+                self.apply(fid, Action(action='read', source_ids=[table],
+                    reason='Numeric factor needs the top matched table segment'), parent)
+                factor.recent_source_ids = [table] + [sid for sid in focused if sid != table]
+        factor.retrieval_stalls = 0
         self.save()
 
     def step(self, fid: str, max_steps: int = 15, repair_attempts: int = 0, on_status=None):

@@ -39,6 +39,7 @@ def search_text(source):
 
 def prompt_source(row, loaded=False):
     source = {k: v for k, v in row.items() if k != 'metadata'}
+    source['read_complete'] = loaded
     card = table_card(row)
     if card:
         source['table_index'] = card

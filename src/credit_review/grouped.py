@@ -24,7 +24,7 @@ def group_context(worker, ids):
             context['available_actions'].append('search')  # requires a changed inquiry after stalled retrieval
         for source in context.pop('sources')[:2]:
             source_limit = getattr(worker, 'source_excerpt_chars', 1200)
-            if not source.get('values_loaded') and len(source['text']) > source_limit:
+            if not source.get('read_complete') and len(source['text']) > source_limit:
                 source['text'] = source['text'][:source_limit]
                 source['excerpt_only'] = True
                 source['omission_note'] = 'Focused excerpt; use read/search to inspect omitted content before concluding.'
@@ -162,7 +162,8 @@ def shared_context(worker, ids, memory):
             if hit.get('evidence_ids'):
                 rows = worker.retriever.read(hit['evidence_ids'])
                 f.evidence_ids = sorted(set(f.evidence_ids) | {r['id'] for r in rows})
-                f.recent_source_ids = list(dict.fromkeys(hit['evidence_ids'][:2] + f.recent_source_ids))[:6]
+                # Prior-work candidates stay in prior_work/evidence_ids. Do not
+                # replace this factor's ranked source window with another topic.
         worker.store.event(action='shared_history_search', factor_id=fid, hits=len(found))
     context = group_context(worker, ids)
     context['prior_work'] = matches
@@ -210,7 +211,8 @@ def analyse_grouped(h, targets, concurrency=2, metrics=None, rounds=6, time_budg
             if not pending:
                 return
             before = progress()
-            # Fair queue: each pending factor gets one opportunity before any repeats.
+            # One bounded continuation after retrieval makes newly obtained
+            # evidence useful before routing every remaining factor.
             waiting = list(pending)
             while waiting:
                 if monotonic() >= deadline:
@@ -240,6 +242,7 @@ def analyse_grouped(h, targets, concurrency=2, metrics=None, rounds=6, time_budg
                     yield event('status', fid, {'action':'review',
                         'question':'다른 파트의 기존 결과 확인 후 부족한 판단을 함께 검토'}, ids)
                 future = pool.submit(worker.client.next_actions, context)
+                continue_ids = []
                 while not future.done():
                     # A bounded wait keeps UI heartbeats alive during slow inference.
                     wait([future], timeout=min(0.5, max(0.001, deadline-monotonic())))
@@ -268,6 +271,10 @@ def analyse_grouped(h, targets, concurrency=2, metrics=None, rounds=6, time_budg
                             raise ReviewStopped('새로운 근거 없이 동일 요청이 반복되어 조기 중단했습니다.')
                         retained.append(item)
                     apply_group_independently(worker, ids, json.dumps({'actions':retained}), response)
+                    continue_ids = [item['factor_id'] for item in retained
+                        if item.get('action', {}).get('action') in ('search', 'read')
+                        and not h.state.factors[item['factor_id']].error
+                        and attempted[item['factor_id']] == 1]
                     consecutive_failures = 0
                     for fid in ids:
                         f = h.state.factors[fid]
@@ -305,6 +312,7 @@ def analyse_grouped(h, targets, concurrency=2, metrics=None, rounds=6, time_budg
                     yield event('state', fid, f.model_copy(deep=True), ids)
                     yield event('done', fid, active=[other for other in ids if other != fid])
                 atomic_json(h.store.path/'performance.json', metrics.snapshot())
+                waiting = continue_ids + waiting
             pending = [fid for fid in pending if not h.state.factors[fid].judgement]
             stale_rounds = stale_rounds + 1 if progress() == before else 0
             if pending and stale_rounds >= 2:
