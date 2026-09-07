@@ -1,5 +1,6 @@
 """Upload -> factor orchestration -> report. Diagnostic state stays on disk."""
 import hashlib
+import importlib
 import json
 import os
 from datetime import date
@@ -10,7 +11,11 @@ import streamlit as st
 from credit_review.demo import DemoClient
 from credit_review.documents import from_json, from_pdf
 from credit_review.harness import Harness
-from credit_review.llm import ColabClient
+import credit_review.llm as llm_module
+
+# Streamlit preserves imported modules between reruns. Refresh the small,
+# stateless client so a deployed connection fix applies without losing uploads.
+ColabClient = importlib.reload(llm_module).ColabClient
 from credit_review.registry import FACTORS
 from credit_review.reporting import report_document, report_markdown
 from credit_review.store import identifier
