@@ -58,3 +58,33 @@ prompts, decoding settings and preserved holdouts.
 
 Private data, run state, adapters and reports belong under ignored `workspace/`
 and the new project Drive folders, never the public Git repository.
+
+## Comparison and recovery
+
+Use `evaluate.py --split validation` when comparing stage adapters for selection.
+`--additional-adapter` reuses one loaded base model for several candidates.
+Use the untouched `--split test` only for the final base/selected-adapter comparison.
+Prompt hashes, decoding limits, rotated execution order, source-reference checks,
+factor coverage and raw generated text are recorded. A short warmup is excluded.
+These checks do not replace source review of causal claims or expert report quality.
+
+The Drive connector has a 100 MiB upload limit and a lower inline-return limit.
+`split_backup.py split checkpoint.zip pieces/` writes 40 MiB pieces and a manifest.
+After downloading every piece, `split_backup.py join pieces/checkpoint.zip.parts.json
+restored.zip` verifies each piece and the complete archive before publishing it.
+Do not extract or resume an incomplete archive. A recovery checkpoint includes
+optimizer state; a stage-best adapter is intended for inference/next-stage SFT.
+
+`watch_training.py PID RUN --deadline ISO_TIMESTAMP` watches only the identified
+training process. Ten minutes without progress or the absolute deadline requests
+a checkpoint-saving stop; a further two-minute grace precedes forced termination.
+
+After training/evaluation have released the GPU, `serve_adapter.py` restores the
+private saved inference command. Add `--adapter credit-review-sft=/absolute/path`
+to expose an unmerged adapter alongside the base. Omit it to restore base-only
+serving. The saved command contains authentication material and must never be
+committed or uploaded. A STARTING status is not a readiness check: verify `/models`
+and a real generation before changing the app's selected model.
+
+From Codespaces, `python scripts/select_llm_model.py` lists the served IDs.
+Passing one exact ID selects base or adapter without changing stored weights.
