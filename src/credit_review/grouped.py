@@ -106,6 +106,13 @@ def apply_group_reply(worker, ids, raw, parent, on_status=None):
             for other in ids:
                 if other != fid and not worker.state.factors[other].judgement:
                     worker.apply(other, Action(action='reuse', reason='Validated group dataset', reuse_dataset_ids=[aid]), parent)
+                    if action.after_dataset:
+                        for cid in f.calculation_ids:
+                            payload = worker.store.get(cid)['payload']
+                            if aid in payload['plan']['dataset_ids'] and payload.get('status') == 'EXECUTED':
+                                target = worker.state.factors[other]
+                                if cid not in target.calculation_ids:
+                                    target.calculation_ids.append(cid)
         if action.action == 'calculate':
             aid = result
             for other in ids:

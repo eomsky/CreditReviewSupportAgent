@@ -71,6 +71,13 @@ class Calculation(Model):
     assumptions: list[str] = Field(default_factory=list)
 
 
+class DatasetCalculation(Model):
+    """A plan on the just-extracted dataframe, executed only after validation."""
+    purpose: str
+    code: str
+    assumptions: list[str] = Field(default_factory=list)
+
+
 class Judgement(Model):
     summary: str
     evidence_ids: list[str]
@@ -99,10 +106,13 @@ class Action(Model):
     reuse_dataset_ids: list[str] = Field(default_factory=list)
     dataset: Dataset | None = None
     calculation: Calculation | None = None
+    after_dataset: DatasetCalculation | None = None
     judgement: Judgement | None = None
 
     @model_validator(mode="after")
     def payload(self):
+        if self.after_dataset is not None and self.action != 'dataset':
+            raise ValueError('after_dataset is only valid for a dataset action')
         required = {"plan": self.inquiry, "reframe": self.inquiry, "search": self.query, "read": self.source_ids,
                     "dataset": self.dataset, "calculate": self.calculation, "reuse": self.reuse_dataset_ids,
                     "conclude": self.judgement}[self.action]

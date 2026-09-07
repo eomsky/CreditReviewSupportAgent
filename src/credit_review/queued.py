@@ -10,7 +10,8 @@ from .store import atomic_json
 from .run_health import service_failure
 
 
-FINANCIAL = {f'F{i:02}' for i in range(12,30)}
+FINANCIAL = {f'F{i:02}' for i in range(12,25)}
+TERMINAL = {'NO_PROGRESS', 'LIMIT_REACHED'}
 
 
 def eligible(fid, active, states, targets):
@@ -21,7 +22,7 @@ def eligible(fid, active, states, targets):
         return False
     deps = ({f'F{i:02}' for i in range(13,24)} if fid == 'F24'
             else set(targets)-{'F30'} if fid == 'F30' else set()) & set(targets)
-    return all(states[d].judgement is not None for d in deps)
+    return all(states[d].judgement is not None or states[d].status in TERMINAL for d in deps)
 
 
 def analyse_queued(h, targets, metrics=None, rounds=6, time_budget=60, batch_size=6, concurrency=2):
@@ -111,20 +112,27 @@ def analyse_queued(h, targets, metrics=None, rounds=6, time_budget=60, batch_siz
                     fids = [item['factor_id'] for item in items]
                     if not items or len(set(fids))!=len(fids) or not set(fids).issubset(ids):
                         raise ValueError('Unexpected or duplicate factor in group response')
+                    retained = []
                     for item in items:
                         try:
                             action = Action.model_validate(item['action'])
                         except ValueError:
+                            retained.append(item)
                             continue  # independent validator retains the good peers
                         key = (item['factor_id'],signature(action))
                         repeats[key] = repeats.get(key,0)+1
                         if repeats[key]>2:
-                            raise ReviewStopped('새로운 근거 없이 동일 요청이 반복되어 조기 중단했습니다.')
+                            f = h.state.factors[item['factor_id']]
+                            f.status, f.error = 'NO_PROGRESS', 'Identical requests repeated; factor stopped, independent work continues.'
+                            h.store.event(action='factor_stopped', factor_id=item['factor_id'], error=f.error)
+                            continue
+                        retained.append(item)
                     local_started = monotonic()
                     try:
                         # Other submitted HTTP calls keep running while local
                         # retrieval, validation and Python calculations execute.
-                        apply_group_independently(worker,ids,raw,response)
+                        if retained:
+                            apply_group_independently(worker,ids,json.dumps({'actions':retained}),response)
                     finally:
                         metrics.record('local_apply', local_started)
                     failures = 0
@@ -140,7 +148,9 @@ def analyse_queued(h, targets, metrics=None, rounds=6, time_budget=60, batch_siz
                                 rechecked.add(fid)
                         stalls[fid] = stalls.get(fid,0)+1 if stamp(fid)==job['before'][fid] else 0
                         if not f.judgement and stalls[fid]>=2:
-                            raise ReviewStopped('후속 두 요청에서 새로운 분석 결과가 없어 조기 중단했습니다.')
+                            f.status = 'NO_PROGRESS'
+                            f.error = f.error or 'No new evidence or result after two follow-ups.'
+                            h.store.event(action='factor_stopped', factor_id=fid, error=f.error)
                 except ReviewStopped:
                     raise
                 except Exception as error:
@@ -163,10 +173,11 @@ def analyse_queued(h, targets, metrics=None, rounds=6, time_budget=60, batch_siz
                     if f.judgement:
                         if metrics.first_report_seconds is None:
                             metrics.first_report_seconds=monotonic()-metrics.started
-                    else:
+                    elif f.status not in TERMINAL:
                         if attempts[fid]>=rounds:
-                            raise ReviewStopped('후속 요청 회차 한도에 도달했습니다.')
-                        again.append(fid)
+                            f.status, f.error = 'LIMIT_REACHED', 'Factor follow-up limit reached.'
+                        else:
+                            again.append(fid)
                     yield event('state',fid,f.model_copy(deep=True))
                     yield event('done',fid)
                 # Give newly ready results a short continuation, then age them

@@ -22,6 +22,7 @@ inquiry에는 question, hypotheses(배열), evidence_tests(배열), change_reaso
 동일한 표를 요인마다 다시 만들지 않는다. 기존 datasets의 범위·기간·단위가 맞으면 그대로 사용한다.
 number/integer 열은 unit에 원문에서 확인한 단위를 반드시 별도로 기재한다. 열 이름에 단위가 있어도 unit을 생략하지 않는다. 예: 원문이 백만원이면 unit="백만원", 가동률이 %이면 unit="%". 단위를 확인할 수 없으면 추측하지 말고 해당 자료의 단위/각주를 먼저 확보한다. 연도·기간은 string으로 보존할 수 있다.
 계산은 calculate로 Python에 위임한다. dfs[실제 dataset ID]를 사용하며 pd/np 사용 가능, result 변수에 JSON 직렬화 가능한 값을 저장한다.
+새 데이터셋의 수치로 바로 계산할 수 있다면 dataset Action에 after_dataset={purpose,code,assumptions}를 함께 넣어 요청 왕복을 줄인다. 이 code에서 방금 추출한 DataFrame은 df, pandas는 pd, numpy는 np로 사용할 수 있다. result에 계산 결과를 저장한다. 단위·출처·범위 검증을 통과한 뒤에만 서버가 Python을 실행한다. 결과 해석은 다음 응답에서 EXECUTED 결과를 받은 후 수행한다. 세 기간의 재무표에서는 지원되는 수익성·부채비율·증감률 등 관련 요인의 공통 계산을 한 번에 묶을 수 있다. 원문에 없는 수치를 0으로 대체하지 않는다.
 실행 전 계산값을 예상해 conclude하지 않는다. 다음 응답의 calculations에 성공한 결과가 있을 때만 이를 해석한다.
 공통 계산 결과도 다음 응답에서 공유된다. 계산 실패 결과는 인용하지 말고 원인을 고쳐 재계산한다.
 conclude에는 실제 evidence_ids, calculation_ids, requirement별 근거, 위험/완화/미확인/상충을 포함한다.

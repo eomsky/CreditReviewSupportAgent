@@ -8,7 +8,7 @@ from datetime import date
 from pathlib import Path
 
 from .calculations import DockerExecutor, validate_dataset
-from .models import Action, Dataset, FactorState, ReviewState
+from .models import Action, Dataset, Calculation, FactorState, ReviewState
 from .registry import FACTORS
 from .evidence_queries import QUERIES, NUMERIC_FACTORS
 from .table_access import prompt_source, table_card
@@ -211,6 +211,17 @@ class Harness:
             df.to_json(path / f"{aid}.json", orient="table", force_ascii=False)
             f.dataset_ids.append(aid)
             f.status = "CALCULABLE"
+            if action.after_dataset:
+                inline = action.after_dataset
+                plan = Calculation(purpose=inline.purpose, dataset_ids=[aid],
+                    code='df = dfs[' + repr(aid) + ']\n' + inline.code,
+                    assumptions=inline.assumptions)
+                # No extra model round trip just to obtain the generated artifact ID.
+                # Execute the model's plan through the same isolated executor.
+                try:
+                    self.apply(fid, Action(action='calculate', reason=action.reason, calculation=plan), aid)
+                except Exception as exc:
+                    raise ValueError('Dataset preserved; attached Python calculation failed: ' + str(exc)[:700]) from exc
             return aid
         if action.action == "calculate":
             plan = action.calculation

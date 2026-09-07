@@ -206,6 +206,8 @@ class ColabClient:
                       'properties':{'action':{'type':'string','enum':[action]},'reason':{'type':'string'},payload:field},
                       'required':['action','reason',payload]}
             branch['properties']['inquiry'] = {'$ref':'#/$defs/Inquiry'}
+            if action == 'dataset':
+                branch['properties']['after_dataset'] = {'$ref':'#/$defs/DatasetCalculation'}
             choices.append(branch)
         schema['$defs']['Action'] = {'anyOf':choices}
         from copy import deepcopy
