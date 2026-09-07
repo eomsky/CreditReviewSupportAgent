@@ -51,7 +51,7 @@ def main():
             else:
                 engine = analyse_grouped
             for event in engine(h, list(FACTORS), concurrency=2, metrics=metrics,
-                                time_budget=args.hard_timeout-25 if args.engine=='prepared' else args.hard_timeout):
+                                time_budget=args.hard_timeout-15 if args.engine=='prepared' else args.hard_timeout):
                 if not milestone_saved and monotonic()-metrics.started >= 60:
                     atomic_json(h.store.path/'milestone_60.json', {
                         'elapsed_seconds':monotonic()-metrics.started,
@@ -87,6 +87,9 @@ def main():
             'fulfilled':sum(f.status=='FULFILLED' for f in h.state.factors.values()),
             'stage':stage, 'error':error, 'factors':{k:{'status':f.status,'steps':f.steps,'error':f.error}
                 for k,f in h.state.factors.items()}}
+        quality_path=h.store.path/'quality_review.json'
+        summary['quality_review']=json.loads(quality_path.read_text()) if quality_path.exists() else {'status':'NOT_COMPLETED'}
+        summary['selective_thinking']=os.environ.get('CREDIT_REVIEW_THINKING','0')=='1'
         atomic_json(h.store.path/'benchmark_summary.json', summary)
         (h.store.path/'report.md').write_text(report_markdown(report_document(h)), encoding='utf-8')
         print('RESULT', json.dumps(summary), flush=True)

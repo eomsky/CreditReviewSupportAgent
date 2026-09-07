@@ -4,6 +4,7 @@ Retrieval is local. The LLM authors data and Python plans; isolated Python execu
 them before numerical interpretation. Independent bundles occupy other GPU slots.
 """
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from time import monotonic
 from pydantic import Field
@@ -161,7 +162,8 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
                     submit('bundle',ids,extra,final=True)
                 elif not pending and not jobs and not followups and not review_done:
                     review_done=True
-                    ids=[f for f in ['F02','F05','F17','F20','F22','F24','F29']
+                    critical = ['F17','F22','F24'] if os.environ.get('CREDIT_REVIEW_THINKING','0')=='1' else ['F02','F05','F17','F20','F22','F24','F29']
+                    ids=[f for f in critical
                          if f in targets and h.state.factors[f].judgement]
                     if ids and deadline-monotonic()>15:
                         submit('quality',ids,final=True)
@@ -217,11 +219,17 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
                                     try: extra.extend(h.retriever.read(req.source_ids))
                                     except ValueError: pass
                             if extra: followups.append((job['ids'],extra))
+                        if job['kind']=='quality':
+                            atomic_json(h.store.path/'quality_review.json',{'status':'COMPLETED','factors':job['ids']})
                 except Exception as error:
                     h.store.event(action='prepared_failure',stage=job['kind'],factors=job['ids'],error=str(error))
                     for fid in job['ids']:
                         h.state.factors[fid].error=str(error)[:1000]
                     from .run_health import service_failure
+                    if job['kind']=='quality':
+                        atomic_json(h.store.path/'quality_review.json',{'status':'FAILED','factors':job['ids'],'error':str(error)})
+                        # Preserve completed analysis and the reserved synthesis window.
+                        break
                     if service_failure(error):
                         raise  # An unavailable shared server cannot serve later bundles.
                 finally:

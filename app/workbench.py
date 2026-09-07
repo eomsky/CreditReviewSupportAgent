@@ -271,7 +271,7 @@ if start or resume:
                 h.save()
             engine = analyse_prepared if live else analyse_factors
             for event in engine(h, targets, concurrency=2 if live else 1, metrics=metrics,
-                                **({'time_budget':95} if live else {})):
+                                **({'time_budget':105} if live else {})):
                 kind, fid = event['kind'], event.get('factor_id')
                 if kind == 'status':
                     value = event['value']
