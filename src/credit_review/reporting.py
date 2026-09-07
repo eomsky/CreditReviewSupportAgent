@@ -15,10 +15,25 @@ SECTIONS = [
 def report_document(h):
     """Keep factual qualifications in analysis; omit operational checklists."""
     sections = []
+    displayed_datasets = set()
     for title, ids in SECTIONS:
         paragraphs, tables = [], []
         for fid in ids:
             f = h.state.factors[fid]
+            if title == '재무현황 및 수익성':
+                for aid in f.dataset_ids:
+                    if aid in displayed_datasets: continue
+                    displayed_datasets.add(aid)
+                    data = h.store.get(aid)['payload']
+                    columns=data['columns']
+                    def value(v):
+                        if isinstance(v,(float,int)) and not isinstance(v,bool):
+                            return format(v,',.2f').rstrip('0').rstrip('.') if isinstance(v,float) else format(v,',d')
+                        return v
+                    scope={'CONSOLIDATED':'연결','SEPARATE':'별도','UNKNOWN':'범위 미확인'}[data['scope']]
+                    tables.append({'caption':f"{data['entity']} · {scope} · {data['name']}",
+                        'columns':[(c.get('description') or c['name'])+(f" ({c['unit']})" if c.get('unit') else '') for c in columns],
+                        'rows':[[value(row[c['name']]) for c in columns] for row in data['rows']]})
             if f.report_text:
                 paragraphs.append({"heading": FACTORS[fid]["name"], "text": f.report_text})
                 continue

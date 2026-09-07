@@ -11,6 +11,15 @@ from .table_access import search_text
 class Retriever:
     def __init__(self, sources: list[Source], cutoff: date, embedding_model: str = ""):
         self.sources = {s.id: s for s in sources if s.published_at <= cutoff}
+        # Table chunks can omit the statement title (notably connected/separate).
+        # Carry the actual page opening as labelled context, without mutating the
+        # stored extractor artifact or treating an inferred scope as a fact.
+        for sid, source in list(self.sources.items()):
+            parent = self.sources.get(source.parent_id)
+            if source.kind == 'table' and parent and parent.kind == 'page':
+                self.sources[sid] = source.model_copy(update={'metadata':{
+                    **source.metadata, 'page_opening':{'source_id':parent.id,'page':parent.page,
+                    'text':parent.text[:900], 'excerpt_only':len(parent.text)>900}}})
         self.rows = [s for s in self.sources.values() if s.metadata.get("searchable", True)]
         self.model = None
         self.dense = None

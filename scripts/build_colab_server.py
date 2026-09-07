@@ -78,9 +78,9 @@ if not globals().get("server") or server.poll() is not None:
         "--host", "127.0.0.1", "--port", str(PORT), "--api-key", API_KEY,
         "--served-model-name", MODEL_ID, "--dtype", "bfloat16",
         "--gpu-memory-utilization", "0.90", "--max-model-len", str(CONTEXT_TOKENS),
-        "--max-num-seqs", "2", "--max-num-batched-tokens", "8192",
+        "--max-num-seqs", "4", "--max-num-batched-tokens", "8192",
         "--enable-prefix-caching", "--limit-mm-per-prompt", '{"image":0,"video":0,"audio":0}'
-    ], stdout=log, stderr=subprocess.STDOUT, env=os.environ.copy())
+    ], stdout=log, stderr=subprocess.STDOUT, env=os.environ.copy(), start_new_session=True)
     for attempt in range(180):
         if server.poll() is not None:
             raise RuntimeError((ROOT / "vllm.log").read_text(errors="replace")[-6000:])
@@ -107,7 +107,7 @@ print(f"확인된 전체 문맥: {actual_context:,} tokens · 출력 6,000 token
 if not globals().get("tunnel") or tunnel.poll() is not None:
     tunnel_log = (ROOT / "tunnel.log").open("w")
     tunnel = subprocess.Popen([str(cloudflared), "tunnel", "--url", f"http://127.0.0.1:{PORT}",
-                               "--no-autoupdate"], stdout=tunnel_log, stderr=subprocess.STDOUT)
+                              "--no-autoupdate"], stdout=tunnel_log, stderr=subprocess.STDOUT, start_new_session=True)
     for _ in range(60):
         matches = re.findall(r"https://[a-z0-9-]+\\.trycloudflare\\.com", (ROOT / "tunnel.log").read_text())
         if matches:

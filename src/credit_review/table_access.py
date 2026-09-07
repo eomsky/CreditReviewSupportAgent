@@ -27,6 +27,7 @@ def table_card(row):
                       for u in element.get('units', [])],
         })
     return {'section_path': payload.get('section_path', []), 'tables': tables,
+            'page_opening':meta.get('page_opening'),
             'locator': {'source_id': row['id'], 'document_id': row['document_id'],
                         'page': row['page'], 'parent_id': row.get('parent_id')},
             'values_loaded': False}
@@ -46,6 +47,9 @@ def search_text(source):
         elif isinstance(value, dict):
             for key in ('text','label','name','title','path'): add(value.get(key))
     add(card.get('section_path'))
+    # Page titles restore entity/scope labels missing from structural chunks.
+    opening = card.get('page_opening') or {}
+    add(opening.get('text','')[:220])
     for table in card['tables']:
         add(table.get('title'))
         for column in table['columns']: add(column.get('path'))

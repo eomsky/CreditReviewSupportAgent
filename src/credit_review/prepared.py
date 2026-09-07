@@ -83,6 +83,8 @@ def evidence_pack(h, ids, extra=None, budget=42000):
 def review_context(h, ids, extra=None):
     context = evidence_pack(h, ids, extra)
     context['factors'] = {fid:FACTORS[fid] for fid in ids}
+    from .review_criteria import CRITERIA
+    context['review_criteria']={fid:CRITERIA[fid] for fid in ids if fid in CRITERIA}
     datasets = {aid for f in h.state.factors.values() for aid in f.dataset_ids}
     calculations = {aid for f in h.state.factors.values() for aid in f.calculation_ids}
     context['datasets'] = {aid:h.store.get(aid)['payload'] for aid in datasets}
@@ -95,6 +97,7 @@ def review_context(h, ids, extra=None):
         refs={sid for data in context['datasets'].values() for row in data['cell_sources'] for source_ids in row.values() for sid in source_ids}
         f.evidence_ids=sorted(set(f.evidence_ids)|refs)
     context['prior_findings']={fid:f.judgement.model_dump() for fid,f in h.state.factors.items() if f.judgement}
+    context['foundation_errors']=getattr(h,'foundation_errors',[])
     return context
 
 
@@ -149,14 +152,18 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
                     raw=future.result()
                     output=h.store.put('prepared_'+job['kind']+'_output',{'raw':raw},[job['parent']])
                     if job['kind']=='foundation':
-                        data=Foundation.model_validate_json(raw)
-                        for item in data.datasets:
+                        data=json.loads(raw)
+                        h.foundation_errors=[]
+                        for raw_item in data.get('datasets',[]):
                             try:
+                                item=PreparedDataset.model_validate(raw_item)
                                 h.apply('F13',Action(action='dataset',reason='Shared financial preparation',
                                     dataset=item.dataset,after_dataset=item.after_dataset),output)
                             except Exception as error:
+                                h.foundation_errors.append(str(error)[:800])
                                 h.store.event(action='foundation_validation',error=str(error))
-                        h.store.put('foundation_limitations',{'limitations':data.limitations},[output])
+                        h.store.put('foundation_limitations',{'limitations':data.get('limitations',[]),
+                            'errors':h.foundation_errors},[output])
                     else:
                         reply=BundleReview.model_validate_json(raw)
                         seen=set()
@@ -166,6 +173,7 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
                             seen.add(fid)
                             try:
                                 h.apply(fid,Action(action='conclude',reason='Evidence-based bundle judgement',judgement=finding.judgement),output)
+                                h.state.factors[fid].error=None
                                 h.state.factors[fid].steps+=1
                                 if metrics.first_report_seconds is None: metrics.first_report_seconds=monotonic()-metrics.started
                                 yield event('state',fid,h.state.factors[fid].model_copy(deep=True))

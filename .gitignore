@@ -8,3 +8,4 @@ workspace/
 .pytest_*/
 
 .venv_spt/
+.pt_*/
