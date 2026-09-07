@@ -1,5 +1,25 @@
 # Bounded live benchmark, 2026-09-08
 
+## Follow-up: fused inquiry and action
+
+Code `9b17e7f`, deployed to Codespaces before the run. Same source extraction and
+60-second watchdog as below. Run `run_426fb85cf679459fa2be85863e168cab`.
+
+- Watchdog elapsed **60.0341712920017 seconds**, worker terminated, exit -9.
+- **8** completed calls recorded; **0/30** judgements; report incomplete.
+- Saved replies: **22 search, 8 read, 0 plan** actions. Saved factor errors: none.
+- Planning-only responses were eliminated, but no report latency improvement was
+  demonstrated. No longer benchmark was run. Retrieval/read rounds still consume
+  the deadline before conclusions; fewer planning steps alone do not meet the target.
+- Local validation: **63 tests passed in 3.43 seconds**, including same-response
+  inquiry/read, changed-inquiry/search, schema requirements and planning-only rejection.
+
+The batch schema now requires inquiry alongside a useful action for fresh factors.
+An optional changed inquiry on a subsequent action records a reframe before the
+action executes, subject to the existing reframe limit. Table-read requirements,
+Python calculation execution and provenance checks remain in force. Legacy
+single-factor actions remain compatible; planning-only actions are blocked in batches.
+
 Code: `a100d72`. Live model: `google/gemma-4-26B-A4B-it`.
 
 - Source: saved STX PDF extraction from `run_0947b80597d946e58a3023ce6edc3211`.
