@@ -9,6 +9,7 @@ from pathlib import Path
 from .calculations import DockerExecutor, validate_dataset
 from .models import Action, Dataset, FactorState, ReviewState
 from .registry import FACTORS
+from .table_access import prompt_source, table_card
 from .retrieval import Retriever
 from .store import Store, atomic_json, json_text
 
@@ -44,21 +45,12 @@ class Harness:
         focused = (factor.recent_source_ids or factor.evidence_ids)[-6:]
         rows = self.retriever.read(focused)
         # Avoid repeating full parent pages beside each paragraph/table. Parents remain readable by ID.
-        sources = [{k: v for k, v in row.items() if k != "metadata"} for row in rows if row["id"] in focused]
-        for source in sources:
-            raw = next(row for row in rows if row['id'] == source['id'])
-            meta = raw.get('metadata', {})
-            if meta.get('structured'):
-                payload = meta['structured']
-                source['structure'] = {
-                    'document_id': source['document_id'], 'source': payload['source'],
-                    'section_path': payload.get('section_path', []),
-                    'table_structure': meta.get('table_structure'),
-                    'columns': [col for el in payload['elements'] for col in el.get('hierarchy', {}).get('columns', [])]}
+        loaded = {sid for f in self.state.factors.values() for sid in f.read_source_ids}
+        sources = [prompt_source(row, row['id'] in loaded) for row in rows if row['id'] in focused]
         # Bound the source window without deleting the underlying source artifacts.
         # Mark excerpts explicitly so their absence cannot be interpreted as evidence.
         for source in sources:
-            if len(source['text']) > 6500:
+            if not source.get('values_loaded') and len(source['text']) > 6500:
                 source['text'] = source['text'][:6500]
                 source['excerpt_only'] = True
                 source['omission_note'] = 'Excerpt only; search a focused child passage before using omitted table rows or notes.'
@@ -75,7 +67,7 @@ class Harness:
                 "shared_datasets": {aid: {k: v for k, v in self.store.get(aid)["payload"].items() if k not in ("rows", "cell_sources")}
                     for other in self.state.factors.values() for aid in other.dataset_ids if aid not in factor.dataset_ids},
                 "available_actions": (["plan"] if not factor.inquiry else (["reframe"] if factor.reframes < 3 else []))
-                    + (["search", "read"] if factor.retrieval_stalls < 2 else []) + ["conclude"]
+                    + (["search", "read"] if factor.retrieval_stalls < 2 else (["read"] if any(s.get("read_required") for s in sources) else [])) + ["conclude"]
                     + (["dataset", "calculate", "reuse"] if fid not in {'F01','F02','F03','F04','F05','F06','F07','F08','F09','F25','F26','F27'} or factor.reframes else [])}
 
     def prepare_evidence(self, fid):
@@ -166,6 +158,7 @@ class Harness:
                 payload = {"query": action.query, "hits": hits}
             else:
                 rows = self.retriever.read(action.source_ids)
+                f.read_source_ids = sorted(set(f.read_source_ids) | set(action.source_ids))
                 payload = {"sources": rows}
             f.recent_source_ids = [s["id"] for s in rows if s["id"] in action.source_ids] if action.action == "read" else [s["id"] for s in rows]
             f.retrieval_stalls = f.retrieval_stalls + 1 if set(f.recent_source_ids) == old_window else 0
@@ -186,6 +179,8 @@ class Harness:
             return self.store.put("reuse", {"dataset_ids": action.reuse_dataset_ids}, [parent_id] + action.reuse_dataset_ids)
         if action.action == "dataset":
             data = action.dataset
+            refs = {sid for row in data.cell_sources for ids in row.values() for sid in ids}
+            self.require_table_read(refs)
             df = validate_dataset(data, set(f.evidence_ids))
             aid = self.store.put("dataset", data.model_dump(mode="json"), [parent_id])
             path = self.store.path / "datasets"
@@ -211,6 +206,7 @@ class Harness:
         references = set(judgement.evidence_ids) | {sid for refs in judgement.requirements.values() for sid in refs}
         if not references.issubset(known) or not set(judgement.calculation_ids).issubset(f.calculation_ids):
             raise ValueError("Judgement cites unavailable evidence/calculations")
+        self.require_table_read(references)
         required = set(FACTORS[fid]["required_evidence"])
         if set(judgement.requirements) - required:
             raise ValueError("Unknown requirement IDs")
@@ -223,12 +219,18 @@ class Harness:
         return self.store.put("judgement", {"factor_id": fid, **judgement.model_dump(),
             "verification": "reference_integrity_checked; semantic_review_pending"}, [parent_id] + f.calculation_ids)
 
+    def require_table_read(self, ids):
+        loaded = {sid for f in self.state.factors.values() for sid in f.read_source_ids}
+        for row in self.retriever.read(sorted(ids)):
+            if row['id'] in ids and table_card(row) and row['id'] not in loaded:
+                raise ValueError('Table discovery card is not value evidence; read ' + row['id'])
+
     def reset_factor(self, fid):
         old = self.state.factors[fid]
         self.store.put("factor_checkpoint", old.model_dump(mode="json"))
         self.state.factors[fid] = FactorState(factor_id=fid, evidence_ids=old.evidence_ids,
             dataset_ids=old.dataset_ids, calculation_ids=old.calculation_ids, inquiry=old.inquiry,
-            reframes=old.reframes, recent_source_ids=old.recent_source_ids)
+            reframes=old.reframes, recent_source_ids=old.recent_source_ids, read_source_ids=old.read_source_ids)
         self.state.report_id = None
         self.store.event(action="reset_factor", factor_id=fid)
         self.save()

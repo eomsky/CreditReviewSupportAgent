@@ -132,6 +132,7 @@ class FactorState(Model):
     judgement: Judgement | None = None
     error: str | None = None
     recent_source_ids: list[str] = Field(default_factory=list)
+    read_source_ids: list[str] = Field(default_factory=list)
     coverage: float = 0
     requirements_met: list[str] = Field(default_factory=list)
     last_signature: str | None = None

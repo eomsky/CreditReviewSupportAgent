@@ -21,7 +21,7 @@ def group_context(worker, ids):
         context = worker.context(fid)
         for source in context.pop('sources')[:2]:
             source_limit = getattr(worker, 'source_excerpt_chars', 1200)
-            if len(source['text']) > source_limit:
+            if not source.get('values_loaded') and len(source['text']) > source_limit:
                 source['text'] = source['text'][:source_limit]
                 source['excerpt_only'] = True
                 source['omission_note'] = 'Focused excerpt; use read/search to inspect omitted content before concluding.'

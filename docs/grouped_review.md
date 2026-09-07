@@ -47,3 +47,22 @@ Live smoke validation on 2026-09-07 with saved STX annual-report evidence:
 F01/F02/F03 produced reference-validated judgements in one Gemma call, 14.78 seconds
 total (11.86 seconds in the LLM call). This excludes initial PDF extraction, is
 not a 30-factor completion benchmark, and does not establish semantic accuracy.
+# Table discovery and deferred reads (2026-09-08)
+
+SPT v0.17 structured tables now use title, section, row/column paths, units,
+segment and source/page locators for lexical/dense retrieval. Numeric body cells
+are excluded from this search representation. Unstructured legacy sources keep
+their existing text path; no headers are invented.
+
+The prompt initially receives a discovery card. An explicit `read` loads the
+complete existing row segment and notes; it is shared across factors and is not
+cut by the normal paragraph excerpt limit. Large tables remain segmented by the
+existing extractor. Original artifacts retain cell provenance and geometry.
+Dataset creation and conclusions cannot cite a structured table that has only
+been discovered. A cached search does not count as an explicit read.
+
+The earlier saved six-factor input measured 23,011 tokens before bookkeeping
+compaction and 16,773 after (27.1% reduction), using the live server tokenizer.
+This comparison predates deferred table reads; it is not an end-to-end latency
+claim. The server reported 28,672 context tokens at measurement time; the notebook
+setting of 49,152 requires a server restart and separate live verification.

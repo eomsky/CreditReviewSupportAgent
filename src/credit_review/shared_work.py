@@ -101,8 +101,14 @@ class SharedWork:
             return None
         f = self.h.state.factors[fid]
         if row['evidence_ids']:
-            self.h.apply(fid, Action(action='read', reason='Reuse prior source lookup',
-                source_ids=row['evidence_ids']), parent)
+            if action.action == 'search':
+                # Reusing a discovery hit must not silently promote table values
+                # into material explicitly read by the model.
+                f.evidence_ids = sorted(set(f.evidence_ids) | set(row['evidence_ids']))
+                f.recent_source_ids = list(row['evidence_ids'])
+            else:
+                self.h.apply(fid, Action(action='read', reason='Reuse prior source lookup',
+                    source_ids=row['evidence_ids']), parent)
         for aid in row['dataset_ids']:
             self.h.apply(fid, Action(action='reuse', reason='Reuse identical validated dataset',
                 reuse_dataset_ids=[aid]), parent)

@@ -5,6 +5,7 @@ import json
 from .index_cache import cached_index
 from sklearn.feature_extraction.text import TfidfVectorizer
 from .models import Source
+from .table_access import search_text
 
 
 class Retriever:
@@ -16,7 +17,7 @@ class Retriever:
         self.vectorizer = TfidfVectorizer(analyzer="char", ngram_range=(2, 4))
         self.sparse = None
         if self.rows and any(s.text.strip() for s in self.rows):
-            texts = [s.text or ' ' for s in self.rows]
+            texts = [search_text(s) or ' ' for s in self.rows]
             key = hashlib.sha256(json.dumps(texts, ensure_ascii=False).encode()).hexdigest()
             def build():
                 vectorizer = TfidfVectorizer(analyzer='char', ngram_range=(2, 4))
@@ -24,10 +25,10 @@ class Retriever:
             self.vectorizer, self.sparse = cached_index(('lexical-v1', key), build)
         if embedding_model and self.rows:
             from sentence_transformers import SentenceTransformer
-            dense_key = hashlib.sha256(json.dumps([s.text for s in self.rows], ensure_ascii=False).encode()).hexdigest()
+            dense_key = hashlib.sha256(json.dumps([search_text(s) for s in self.rows], ensure_ascii=False).encode()).hexdigest()
             def build_dense():
                 model = SentenceTransformer(embedding_model, device='cpu')
-                return model, model.encode(['passage: ' + s.text for s in self.rows], normalize_embeddings=True)
+                return model, model.encode(['passage: ' + search_text(s) for s in self.rows], normalize_embeddings=True)
             self.model, self.dense = cached_index(('dense-v1', embedding_model, dense_key), build_dense)
         self.mode = "hybrid_dense_lexical" if self.model else "lexical_only"
 
