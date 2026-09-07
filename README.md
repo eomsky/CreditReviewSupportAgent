@@ -11,14 +11,15 @@ python -m streamlit run app/workbench.py --server.address 0.0.0.0
 ```
 
 Codespaces Ports → 8501 → Open in Browser. 포트는 Private으로 유지합니다.
-DEMO에서 새 실행을 만들고 F24의 다음 단계 실행을 네 번 누르면 검색 → 데이터셋 → Python 계산 → 판단이 진행됩니다.
-DEMO는 가상 자료와 사전 정의 JSON을 사용합니다. 실제 LLM 분석이 아닙니다. 계산은 데모에서도 Docker로 실제 실행합니다.
+자료 업로드 후 **분석 시작**을 누르면 요인별 분석과 계산을 거쳐 심사보고서를 작성합니다. 화면과 다운로드에는 보고서 본문·표만 표시하며 누락/충돌/coverage/실행 기록은 내부 JSON에 보존합니다. 생성 전 LLM 연결을 확인하며 연결 실패를 분석 완료로 표시하지 않습니다.
+기존에 저장된 DEMO 보고서는 가상 자료와 사전 정의 JSON으로 만든 예시입니다. 실제 LLM 분석이 아닙니다.
 
 ## Colab 연결
 
 실행 전 Codespaces 환경에 `LLM_BASE_URL` (끝에 /v1), `LLM_MODEL`, `LLM_API_KEY`를 설정합니다.
 `.env.example`은 예시이며 자동 로드되지 않습니다. 키는 Git에 저장하지 않습니다.
 LIVE에서 JSON/PDF를 등록하면 Colab LLM이 search/read/dataset/calculate/conclude action을 생성합니다.
+또는 Git에서 제외되는 `workspace/llm_connection.json`에 `base_url`, `model`, `api_key`를 저장하면 서버 재시작 없이 다음 요청에서 읽습니다. 키가 포함된 이 파일을 공유하거나 Git에 올리지 않습니다.
 
 ## 구현
 
