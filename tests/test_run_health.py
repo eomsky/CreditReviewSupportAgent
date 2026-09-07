@@ -24,7 +24,8 @@ def test_530_stops_following_factors_and_persists_reason(tmp_path, monkeypatch):
     app = AppTest.from_file(APP).run(timeout=30)
     next(b for b in app.button if b.label == '보고서 작성 계속').click().run(timeout=30)
     assert not app.exception
-    assert calls.count('/v1/chat/completions') == 1
+    # At most the two already dispatched parallel requests; never later bundles.
+    assert 1 <= calls.count('/v1/chat/completions') <= 2
     outcome = saved_status(h)
     assert outcome['status'] == 'FAILED'
     assert '530' in outcome['reason']

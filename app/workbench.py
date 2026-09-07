@@ -44,6 +44,11 @@ importlib.reload(grouped_module)
 import credit_review.queued as queued_module
 importlib.reload(queued_module)
 from credit_review.grouped import analyse_grouped
+import credit_review.prepared as prepared_module
+importlib.reload(prepared_module)
+import credit_review.prepared_client as prepared_client_module
+importlib.reload(prepared_client_module)
+from credit_review.prepared import analyse_prepared
 from credit_review.ingestion import prepare_upload
 from credit_review.store import atomic_json
 from credit_review.registry import FACTORS
@@ -243,7 +248,11 @@ if start or resume:
             try:
                 with writing.container():
                     st.caption("작성 중인 보고서 초안")
-                    st.write_stream(h.stream_narrative(fid))
+                    if fid is None and live:
+                        client.set_deadline(metrics.started + 120)
+                        st.write_stream(h.stream_synthesis())
+                    else:
+                        st.write_stream(h.stream_narrative(fid))
             except Exception as error:
                 h.store.event(action="narrative", factor_id=fid, status="ERROR", error=str(error))
                 raise
@@ -258,8 +267,9 @@ if start or resume:
             if live:
                 h.state.review_strategy = 'grouped'
                 h.save()
-            engine = analyse_grouped if live else analyse_factors
-            for event in engine(h, targets, concurrency=2 if live else 1, metrics=metrics):
+            engine = analyse_prepared if live else analyse_factors
+            for event in engine(h, targets, concurrency=2 if live else 1, metrics=metrics,
+                                **({'time_budget':95} if live else {})):
                 kind, fid = event['kind'], event.get('factor_id')
                 if kind == 'status':
                     value = event['value']
@@ -284,9 +294,10 @@ if start or resume:
                     stage = "요인별 판단 종합"
                     checkpoint(h, "RUNNING", stage, current_question)
                     activity.info("요인별 판단의 상충관계와 상환능력 영향을 종합하고 있습니다.")
-                    h.synthesize()
                     if live:
                         write_section()
+                    else:
+                        h.synthesize()
                 except Exception as error:
                     h.store.event(action="synthesis", status="ERROR", error=str(error))
                     raise

@@ -214,7 +214,8 @@ class Harness:
             if action.after_dataset:
                 inline = action.after_dataset
                 plan = Calculation(purpose=inline.purpose, dataset_ids=[aid],
-                    code='df = dfs[' + repr(aid) + ']\n' + inline.code,
+                    code='df = dfs[' + repr(aid) + ']\n' + inline.code +
+                        "\nif 'result' not in globals():\n    result = df.replace([np.inf, -np.inf], np.nan).astype(object).where(lambda frame: frame.notna(), None).to_dict(orient='records')\n",
                     assumptions=inline.assumptions)
                 # No extra model round trip just to obtain the generated artifact ID.
                 # Execute the model's plan through the same isolated executor.

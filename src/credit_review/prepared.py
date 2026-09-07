@@ -17,6 +17,13 @@ from .store import atomic_json
 BUNDLES = [list(FACTORS)[:5], list(FACTORS)[5:12], list(FACTORS)[12:20],
            list(FACTORS)[20:26], list(FACTORS)[26:29], ['F30']]
 NUMERIC_INPUTS = ['F13','F14','F15','F16','F17','F18','F21','F22']
+DISCOVERY = {
+    'F02':['회사의 연혁','설립 인적분할'],
+    'F05':['연결대상 종속회사 개황','종속기업 재무정보'],
+    'F10':['주요 매출처 매출 비중','고객 집중도 매출액'],
+    'F22':['유동성위험 계약상 잔존만기','금융부채 만기분석'],
+    'F24':['연결 현금흐름표 영업활동','차입금 계약상 만기'],
+}
 
 
 class PreparedDataset(Model):
@@ -53,6 +60,8 @@ def evidence_pack(h, ids, extra=None, budget=42000):
         hits = h.retriever.search(QUERIES.get(fid, FACTORS[fid]['name']), limit=10)
         candidates = [hit['source'] for hit in hits]
         selected = candidates[:3]
+        for query in DISCOVERY.get(fid,[]):
+            selected = [hit['source'] for hit in h.retriever.search(query,limit=2)] + selected
         if fid in NUMERIC_FACTORS:
             selected = [s for s in candidates if table_card(s)][:2] + selected
         by_factor[fid] = list(dict.fromkeys(s['id'] for s in selected))
@@ -116,6 +125,7 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
     jobs={}
     followups=[]
     foundation_done=False
+    review_done=False
     bundles=[list(f for f in ids if f in targets and not h.state.factors[f].judgement) for ids in BUNDLES]
     pending=[ids for ids in bundles if ids]
     pool=ThreadPoolExecutor(max_workers=max(1,min(2,concurrency)),thread_name_prefix='credit-prepared')
@@ -126,7 +136,9 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
 
     def submit(kind, ids, extra=None, final=False):
         context=evidence_pack(h,ids,budget=32000) if kind=='foundation' else review_context(h,ids,extra)
-        if kind!='foundation': context['final_pass']=final
+        if kind!='foundation':
+            context['final_pass']=final
+            context['review_pass']=kind=='quality'
         parent=h.store.put('prepared_'+kind+'_input',context)
         future=pool.submit(getattr(h.client,'prepare_financial' if kind=='foundation' else 'review_bundle'),context)
         jobs[future]={'kind':kind,'ids':ids,'context':context,'parent':parent,'final':final}
@@ -134,7 +146,7 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
 
     try:
         submit('foundation',[f for f in NUMERIC_INPUTS if f in targets])
-        while pending or jobs or followups:
+        while pending or jobs or followups or not review_done:
             if monotonic()>=deadline: raise TimeoutError('Prepared review reached its analysis deadline')
             while len(jobs)<min(2,max(1,concurrency)):
                 ready=next((ids for ids in pending if (foundation_done or not set(ids)&set(NUMERIC_INPUTS))
@@ -147,6 +159,14 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
                 elif foundation_done and followups and (not pending or pending==[['F30']]):
                     ids,extra=followups.pop(0)
                     submit('bundle',ids,extra,final=True)
+                elif not pending and not jobs and not followups and not review_done:
+                    review_done=True
+                    ids=[f for f in ['F02','F05','F17','F20','F22','F24','F29']
+                         if f in targets and h.state.factors[f].judgement]
+                    if ids and deadline-monotonic()>15:
+                        submit('quality',ids,final=True)
+                        for fid in ids:
+                            yield event('status',fid,{'action':'review','question':FACTORS[fid]['name']+'의 수치 범위와 판단 근거를 교차 검토'})
                 else: break
             if not jobs: break
             completed,_=wait(jobs,timeout=.3,return_when=FIRST_COMPLETED)
@@ -201,6 +221,9 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
                     h.store.event(action='prepared_failure',stage=job['kind'],factors=job['ids'],error=str(error))
                     for fid in job['ids']:
                         h.state.factors[fid].error=str(error)[:1000]
+                    from .run_health import service_failure
+                    if service_failure(error):
+                        raise  # An unavailable shared server cannot serve later bundles.
                 finally:
                     if job['kind']=='foundation': foundation_done=True
                     h.save()

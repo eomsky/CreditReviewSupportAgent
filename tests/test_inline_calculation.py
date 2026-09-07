@@ -54,3 +54,24 @@ def test_inline_failure_retains_dataset_for_repair(tmp_path):
         h.apply('F24', action, 'request')
     assert len(h.state.factors['F24'].dataset_ids) == 1
     assert not h.state.factors['F24'].calculation_ids
+
+
+def test_dataframe_only_plan_exports_real_computed_values_and_nulls(tmp_path):
+    import json
+    import pandas as pd
+    import numpy as np
+    h = make(tmp_path)
+    action = dataset_action(h)
+    action.after_dataset.code = "df['computed'] = df['cash'] * 2; df['undefined'] = np.inf"
+    class FixtureExecutor:
+        def execute(self, plan, datasets):
+            namespace = {'pd':pd,'np':np,'dfs':{k:pd.DataFrame(v['rows']) for k,v in datasets.items()}}
+            exec(plan.code,namespace)
+            rows=namespace['result']
+            assert rows[0]['computed']==rows[0]['cash']*2
+            assert rows[0]['undefined'] is None
+            json.dumps(rows,allow_nan=False)
+            return {'status':'EXECUTED','result':rows}
+    h.executor=FixtureExecutor()
+    h.apply('F24',action,'request')
+    assert h.state.factors['F24'].calculation_ids
