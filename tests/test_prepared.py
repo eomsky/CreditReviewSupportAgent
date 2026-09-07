@@ -82,3 +82,19 @@ def test_foundation_wire_pairing_preserves_each_rows_sources():
                 'after_dataset':None}], 'limitations':[]})
     reply=json.loads(prepare_financial(Client(),{'sources':{'source_id':{'text':'2025 cash 10 KRW'}}}))
     assert reply['datasets'][0]['dataset']['cell_sources']==[{'period':['source_id'],'cash':['source_id']}]
+
+
+def test_bundle_reference_arrays_cannot_repeat_until_token_limit():
+    class Client:
+        def complete(self,prompt,context,schema,request_options):
+            judgement=schema['$defs']['Judgement']['properties']
+            assert judgement['evidence_ids']['maxItems']==2
+            assert judgement['calculation_ids']['maxItems']==0
+            required=judgement['requirements']
+            assert set(required['properties'])==set(FACTORS['F27']['required_evidence'])
+            assert required['additionalProperties'] is False
+            assert all(p['maxItems']==2 for p in required['properties'].values())
+            assert judgement['missing']['maxItems']==6
+            return '{"findings":[],"requests":[]}'
+    review_bundle(Client(),{'sources':{'a':{},'b':{}},'datasets':{},'calculations':{},
+                            'factors':{'F27':FACTORS['F27']}})

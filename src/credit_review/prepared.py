@@ -144,7 +144,7 @@ def foundation_context(h,ids):
 
 
 def review_context(h, ids, extra=None):
-    context = evidence_pack(h, ids, extra)
+    context = evidence_pack(h, ids, extra,prefer_consolidated=bool(set(ids)&set(NUMERIC_INPUTS)))
     context['factors'] = {fid:FACTORS[fid] for fid in ids}
     from .review_criteria import CRITERIA
     context['review_criteria']={fid:CRITERIA[fid] for fid in ids if fid in CRITERIA}
