@@ -15,7 +15,16 @@ def encode_record(tokenizer, record, max_length):
     prompt=tokenizer.apply_chat_template(messages[:-1],tokenize=False,add_generation_prompt=True,enable_thinking=False)
     full=tokenizer.apply_chat_template(messages,tokenize=False,add_generation_prompt=False,enable_thinking=False)
     if not full.startswith(prompt):
-        raise ValueError('Assistant prefix differs from generation template; refusing incorrect loss mask')
+        # Gemma 4 appends an empty thought channel only to generation prompts.
+        # Train the exact serving prefix, then the supervised final answer.
+        marker='__CREDIT_ASSISTANT_BOUNDARY_82ab__'
+        probe=tokenizer.apply_chat_template(messages[:-1]+[{'role':'assistant','content':marker}],
+            tokenize=False,add_generation_prompt=False,enable_thinking=False)
+        if probe.count(marker)!=1: raise ValueError('Ambiguous assistant boundary')
+        prefix,suffix=probe.split(marker)
+        if prompt!=prefix+'<|channel>thought\n<channel|>':
+            raise ValueError('Unexpected assistant prefix; refusing incorrect loss mask')
+        full=prompt+messages[-1]['content']+suffix
     encoding=tokenizer(full,add_special_tokens=False,return_offsets_mapping=True)
     ids=encoding['input_ids']
     if len(ids)>max_length: return None,{'reason':'overlength','tokens':len(ids)}
