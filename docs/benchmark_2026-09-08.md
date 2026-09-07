@@ -69,3 +69,34 @@ Codespaces fast-forward to a100d72 verified before the live benchmark.
 Context capacity: notebook setting saved as 49,152; the live endpoint last reported
 28,672. Colab UI remained at Connecting; no successful server restart or expanded
 live capacity has been verified.
+## Bounded request queue and CPU overlap (2026-09-08)
+
+Code `2c82eef`, fast-forward verified in Codespaces. Same prepared STX input and
+60-second watchdog. Run `run_f4379def543b4ed38dd264850bf5e755`.
+
+- Analysis stopped at **47.3015 seconds** after a repeated identical action with
+  no new evidence. Parent process finished at **54.0337 seconds**, exit 0;
+  report completion is **false**, irrespective of the process exit status.
+- **7/30** judgements: F01, F02, F04, F06, F07, F08, F09. First content **27.1237s**.
+- Previous baseline: 5/30 at the 60-second limit, first content 26.2872s.
+  Coverage improved in this single run; first content did not improve, and full
+  report latency and financial reasoning quality remain unproven.
+- Seven completed calls, one still in flight at the saved stop snapshot. The
+  coordinator stops accepting replies after cancellation; the parent confirms
+  process exit. HTTP occupancy **92.89%**, mean concurrent requests **1.842**,
+  no-request interval total **3.365s**. These are not GPU utilization counters.
+- Successful response prompt tokens: **5031, 6536, 9685, 10638, 11411, 10513, 9522**.
+  Completion tokens: **1036, 1280, 947, 774, 1719, 493, 524**. Thus input volume is
+  substantial, but volume alone does not establish evidence sufficiency.
+- Returned actions: 21 read, 7 conclude, 1 dataset, 1 search. The dataset failed
+  row cell-provenance validation; no calculate action executed in this run.
+- Local apply work overlapped HTTP activity for **0.0743s**. A dedicated test
+  verifies local processing can run while another LLM request remains active;
+  this live run does not demonstrate GPU/Python calculation throughput gains.
+- RAM tool-cache hits: 356. Existing exact-input run caches and bounded document
+  index caches retained. No Colab RAM or VRAM allocation was changed.
+- **73 tests passed in 3.93s** before deployment. No extended or repeat live run.
+
+Keep the bounded queue for the observed coverage gain. Next bottleneck is
+redundant evidence reads and invalid dataset construction, not a demonstrated
+shortage of RAM or a long idle interval between HTTP requests.

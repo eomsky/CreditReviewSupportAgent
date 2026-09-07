@@ -39,6 +39,8 @@ importlib.reload(parallel_module)
 from credit_review.parallel import analyse_factors, run_lease, Measurements, MeasuredClient
 import credit_review.grouped as grouped_module
 importlib.reload(grouped_module)
+import credit_review.queued as queued_module
+importlib.reload(queued_module)
 from credit_review.grouped import analyse_grouped
 from credit_review.ingestion import prepare_upload
 from credit_review.store import atomic_json
