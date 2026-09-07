@@ -118,7 +118,7 @@ if start or resume:
             current_question = next((f.inquiry.question for f in h.state.factors.values() if f.inquiry and not f.judgement), "")
     lease_stack = ExitStack()
     owns_run = False
-    metrics = None
+    metrics = Measurements()
     try:
         if h and resume:
             lease_stack.enter_context(run_lease(h))
@@ -160,11 +160,10 @@ if start or resume:
         if not owns_run:
             lease_stack.enter_context(run_lease(h))
             owns_run = True
-        metrics = Measurements()
         h.client = MeasuredClient(client, metrics)
         st.session_state.pop("generation_message", None)
         progress = st.empty()
-        activity = st.empty()
+        activity = outcome_area
         writing = st.empty()
         def status(action, question):
             global stage, current_question
@@ -237,6 +236,11 @@ if start or resume:
             h.store.event(action="report_generation", status="ERROR", error=str(error))
             checkpoint(h, "FAILED", stage, current_question, explain_failure(error))
         st.session_state.generation_message = explain_failure(error)
+    except BaseException:
+        if h and owns_run:
+            checkpoint(h, "FAILED", stage, current_question,
+                       "화면 실행이 중단되었습니다. 저장된 판단을 유지했으며 이어서 작성할 수 있습니다.")
+        raise
     finally:
         if metrics and h and owns_run:
             atomic_json(h.store.path/'performance.json', metrics.snapshot())
