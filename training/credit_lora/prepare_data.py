@@ -234,6 +234,13 @@ def main():
                                 'change_percentage_points':-15,'note':'Explicit scenario assumption, not a forecast fact.'}
             for fj in context.get('factor_judgements',[]):
                 if fj.get('factor_id') in by_case[cid]: fj.update(by_case[cid][fj['factor_id']]['target'])
+            if stage=='full_report':
+                # The original repeats the same opinions inside section_outputs.
+                # Keep all 30 factor summaries, remove duplicate renderings/labels.
+                context.pop('section_outputs',None)
+                context.get('case_profile',{}).pop('company_label',None)
+                context['factor_judgements']=[{k:v for k,v in fj.items() if k in
+                    {'factor_id','reasoning_summary','limitations','concerns'}} for fj in context.get('factor_judgements',[])]
             if stage=='section':
                 answer=markdown_section(row['target'])
                 instruction='제공된 절의 근거와 요인별 판단을 통합하여 심사보고서 절을 한국어 Markdown으로 작성한다. 수치는 입력의 단위와 기간을 유지한다.'
@@ -268,7 +275,7 @@ def main():
             (a.output/f'{stage}_{split}.jsonl').write_text(''.join(dump(r)+'\n' for r in rows),encoding='utf-8')
     (a.output/'repairs.jsonl').write_text(''.join(dump(r)+'\n' for r in audit),encoding='utf-8')
     (a.output/'exclusions.jsonl').write_text(''.join(dump(r)+'\n' for r in exclusions),encoding='utf-8')
-    manifest={'source_sha256':digest(raw),'revision':'repair-v1','records':len(unique),
+    manifest={'source_sha256':digest(raw),'revision':'repair-v2-deduplicated-full-context','records':len(unique),
       'counts':dict(Counter(r['stage']+'_'+r['split'] for r in unique)),
       'repairs':len(audit),'exclusions':len(exclusions),'exclusion_reasons':dict(Counter(r['reason'] for r in exclusions)),
       'splits':splits,'dpo_used':False,'all30_in_training':False,
