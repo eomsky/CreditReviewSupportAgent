@@ -8,6 +8,19 @@ import subprocess
 from tokenize_data import BASE, REVISION
 
 
+def pinned_base_command(command):
+    command=list(command)
+    if 'serve' not in command or command[command.index('serve')+1] != BASE:
+        raise ValueError('Saved command must serve the pinned base model')
+    for flag in ('--revision', '--tokenizer-revision'):
+        if flag in command:
+            if command[command.index(flag)+1] != REVISION:
+                raise ValueError('Saved base/tokenizer revision mismatch')
+        else:
+            command.extend([flag, REVISION])
+    return command
+
+
 def compact_structured_command(command):
     command=list(command)
     flag='--structured-outputs-config'
@@ -59,7 +72,7 @@ def main():
         probe.settimeout(1)
         if probe.connect_ex((host,port))==0:
             raise RuntimeError('Inference port is already occupied; stop the intended server explicitly')
-    command=compact_structured_command(command)
+    command=compact_structured_command(pinned_base_command(command))
     command.extend(adapter_arguments(args.adapter))
     args.output.mkdir(parents=True,exist_ok=True)
     log=args.output/'vllm_restored.log'
