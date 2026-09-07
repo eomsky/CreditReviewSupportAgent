@@ -9,6 +9,23 @@ from credit_review.parallel import analyse_factors, run_lease, CachedTools, Meas
 from test_harness import make
 
 
+def test_prefetch_gives_candidates_without_judgement_or_llm_step(tmp_path):
+    h = make(tmp_path)
+    h.prepare_evidence('F01')
+    f = h.state.factors['F01']
+    assert f.evidence_ids
+    assert f.steps == 0 and f.inquiry is None and f.judgement is None
+    assert not f.requirements_met
+    before = list(f.evidence_ids)
+    h.prepare_evidence('F01')
+    assert f.evidence_ids == before
+    assert 'dataset' not in h.context('F01')['available_actions']
+    assert 'reframe' not in h.context('F01')['available_actions']
+    f.reframes = 1
+    assert 'dataset' in h.context('F01')['available_actions']
+    assert 'calculate' in h.context('F24')['available_actions']
+
+
 def test_two_workers_merge_without_losing_state_and_resume_skips(tmp_path):
     barrier, lock = Barrier(2), Lock()
     class Client:
@@ -96,7 +113,7 @@ def test_service_failure_drains_other_worker_and_never_starts_next(tmp_path):
     h = Harness.create(tmp_path, 'failure', date(2026,4,7), demo_sources(), client)
     with run_lease(h), pytest.raises(RuntimeError, match='530'):
         list(analyse_factors(h, ['F02','F03','F04']))
-    assert client.calls == ['F02','F03']
+    assert sorted(client.calls) == ['F02','F03']
     assert h.state.factors['F03'].judgement.summary == 'preserved'
     assert h.state.factors['F04'].steps == 0
 

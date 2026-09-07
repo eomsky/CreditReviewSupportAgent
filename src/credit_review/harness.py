@@ -66,7 +66,23 @@ class Harness:
                 "shared_datasets": {aid: {k: v for k, v in self.store.get(aid)["payload"].items() if k not in ("rows", "cell_sources")}
                     for other in self.state.factors.values() for aid in other.dataset_ids if aid not in factor.dataset_ids},
                 "available_actions": (["plan"] if not factor.inquiry else (["reframe"] if factor.reframes < 3 else []))
-                    + ["search", "read", "dataset", "calculate", "reuse", "conclude"]}
+                    + ["search", "read", "conclude"]
+                    + (["dataset", "calculate", "reuse"] if fid != 'F01' or factor.reframes else [])}
+
+    def prepare_evidence(self, fid):
+        """Offer initial candidates without spending an LLM round trip on routing.
+
+        Candidates are not verified facts: the model still plans, reads, reframes,
+        calculates and validates conclusions through the normal harness.
+        """
+        factor = self.state.factors[fid]
+        if factor.steps or factor.evidence_ids or factor.judgement:
+            return
+        query = ('회사의 개요 법적 상업적 명칭 설립일 본점 주요사업'
+                 if fid == 'F01' else FACTORS[fid]['name'])
+        parent = self.store.put('evidence_prefetch', {'factor_id': fid, 'query': query})
+        self.apply(fid, Action(action='search', query=query, reason='Initial evidence candidates'), parent)
+        self.save()
 
     def step(self, fid: str, max_steps: int = 15, repair_attempts: int = 0, on_status=None):
         factor = self.state.factors[fid]

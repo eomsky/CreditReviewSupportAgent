@@ -115,7 +115,7 @@ class ColabClient:
                            ("calculate", datasets), ("reuse", reusable)) if not ids}
             allowed = [action for action in allowed if action not in unavailable]
         schema["properties"]["action"]["enum"] = allowed
-        return self.complete(prompt + "\nJSON schema shape:\n" + json.dumps(Action.model_json_schema(), ensure_ascii=False, separators=(",", ":")), context, schema)
+        return self.complete(prompt, context, schema)
 
     def stream_report(self, context):
         prompt = ('확보된 분석을 기업여신 심사보고서 본문으로 편집한다. 한국어 Markdown 문단과 필요한 표만 출력한다. '

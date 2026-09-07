@@ -132,6 +132,7 @@ def analyse_factors(h, targets, concurrency=2, metrics=None):
         try:
             if worker.state.factors[fid].status in ('ERROR', 'LIMIT_REACHED', 'NO_PROGRESS'):
                 worker.reset_factor(fid)
+            worker.prepare_evidence(fid)
             for _ in range(24):
                 if stop.is_set():
                     break
