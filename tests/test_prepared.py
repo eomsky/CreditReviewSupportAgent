@@ -7,6 +7,26 @@ from credit_review.prepared_client import alias_context, prepare_financial, revi
 from credit_review.registry import FACTORS
 
 
+def test_compact_shared_page_keeps_exact_scope_text_and_original():
+    from copy import deepcopy
+    from credit_review.prepared_client import compact_page_contexts
+    opening={'source_id':'page1','text':'연결 재무상태표 (단위:천원)','excerpt_only':True}
+    context={'sources':{sid:{'id':sid,'text':sid+' values','document_id':'doc','page':1,
+        'table_index':{'page_opening':opening,'locator':{'source_id':sid,'document_id':'doc','page':1},
+                       'tables':[{'units':['천원']}]}} for sid in ['a','b']}}
+    original=deepcopy(context)
+    compact=compact_page_contexts(context)
+    assert context==original
+    assert compact['page_contexts']=={'page1':opening}
+    for sid in context['sources']:
+        s=compact['sources'][sid]
+        assert s['text']==context['sources'][sid]['text']
+        assert s['table_index']['page_context_id']=='page1'
+        assert s['table_index']['tables']==context['sources'][sid]['table_index']['tables']
+    wire,restore=alias_context(compact)
+    assert json.loads(restore(json.dumps(wire)))==compact
+
+
 def test_aliases_restore_reference_keys_and_lists_without_changing_text():
     value={'sources':{'long_source':{'id':'long_source','text':'long_source appears in prose'}},
            'calculations':{'long_calc':{'result':1}}, 'references':['long_source','long_calc']}
