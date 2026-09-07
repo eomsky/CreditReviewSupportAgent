@@ -125,6 +125,7 @@ class FactorState(Model):
     applicability: Literal["REQUIRED", "OPTIONAL", "NOT_APPLICABLE"] = "REQUIRED"
     status: str = "UNFULFILLED"
     steps: int = 0
+    retrieval_stalls: int = 0
     evidence_ids: list[str] = Field(default_factory=list)
     dataset_ids: list[str] = Field(default_factory=list)
     calculation_ids: list[str] = Field(default_factory=list)

@@ -32,6 +32,19 @@ def test_nonfinancial_dataset_requires_explicit_reframing(tmp_path):
     assert 'dataset' in h.context('F04')['available_actions']
 
 
+def test_same_retrieval_window_requires_reframe_but_keeps_evidence(tmp_path):
+    h = make(tmp_path)
+    for _ in range(3):
+        h.apply('F04', Action(action='search',reason='lookup',query='cash'), 'test')
+    f = h.state.factors['F04']
+    assert f.retrieval_stalls >= 2
+    assert 'search' not in h.context('F04')['available_actions']
+    from credit_review.models import Inquiry
+    h.apply('F04', Action(action='plan',reason='different question',inquiry=Inquiry(
+        question='Management evidence?', hypotheses=['unknown'], evidence_tests=['source'], change_reason='refocus')), 'test')
+    assert 'search' in h.context('F04')['available_actions']
+
+
 def test_one_batch_produces_two_validated_sections_without_individual_calls(tmp_path):
     class Client:
         calls = 0

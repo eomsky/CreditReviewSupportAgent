@@ -67,13 +67,15 @@ class Harness:
                 "review_date": str(self.state.review_date), "mode": self.state.mode,
                 "sources": sources,
                 "source_window": "Only focused evidence is shown. Use read for earlier evidence_ids or parent_id; all IDs remain preserved.",
+                "retrieval_guidance": ("Repeated retrieval returned the same evidence window. Reframe the question to search again, or conclude with supported limitations."
+                    if factor.retrieval_stalls >= 2 else "Search or read when it adds relevant evidence."),
                 "datasets": {aid: self.store.get(aid)["payload"] for aid in factor.dataset_ids},
                 "calculations": {aid: self.store.get(aid)["payload"] for aid in factor.calculation_ids},
                 "related_findings": {k: v.judgement.model_dump(mode="json") for k, v in self.state.factors.items() if k != fid and v.judgement},
                 "shared_datasets": {aid: {k: v for k, v in self.store.get(aid)["payload"].items() if k not in ("rows", "cell_sources")}
                     for other in self.state.factors.values() for aid in other.dataset_ids if aid not in factor.dataset_ids},
                 "available_actions": (["plan"] if not factor.inquiry else (["reframe"] if factor.reframes < 3 else []))
-                    + ["search", "read", "conclude"]
+                    + (["search", "read"] if factor.retrieval_stalls < 2 else []) + ["conclude"]
                     + (["dataset", "calculate", "reuse"] if fid not in {'F01','F02','F03','F04','F05','F06','F07','F08','F09','F25','F26','F27'} or factor.reframes else [])}
 
     def prepare_evidence(self, fid):
@@ -151,11 +153,13 @@ class Harness:
                 f.reframes += 1
             previous = f.inquiry.model_dump() if f.inquiry else None
             f.inquiry = action.inquiry
+            f.retrieval_stalls = 0
             f.report_text = None
             self.state.report_id = None
             return self.store.put("inquiry", {"previous": previous, "current": f.inquiry.model_dump(),
                 "factor_id": fid}, [parent_id])
         if action.action in ("search", "read"):
+            old_window = set(f.recent_source_ids)
             if action.action == "search":
                 hits = self.retriever.search(action.query)
                 rows = [h["source"] for h in hits]
@@ -164,6 +168,7 @@ class Harness:
                 rows = self.retriever.read(action.source_ids)
                 payload = {"sources": rows}
             f.recent_source_ids = [s["id"] for s in rows if s["id"] in action.source_ids] if action.action == "read" else [s["id"] for s in rows]
+            f.retrieval_stalls = f.retrieval_stalls + 1 if set(f.recent_source_ids) == old_window else 0
             f.evidence_ids = sorted(set(f.evidence_ids) | {s["id"] for s in rows})
             return self.store.put(action.action, payload, [parent_id])
         if action.action == "reuse":
