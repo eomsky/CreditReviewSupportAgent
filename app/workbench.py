@@ -25,6 +25,7 @@ importlib.reload(reporting_module)
 from credit_review.registry import FACTORS
 from credit_review.reporting import report_document, report_markdown
 from credit_review.store import identifier
+from credit_review.run_health import checkpoint, saved_status, status_message, service_failure, explain_failure
 
 ROOT = Path(os.environ.get("CREDIT_WORKSPACE", "workspace"))
 
@@ -87,13 +88,26 @@ if h:
     h = load_report(h.store.path / "state.json")
     st.session_state.harness = h
 report_area = st.empty()
+outcome_area = st.empty()
+if h and not (start or resume):
+    outcome = saved_status(h)
+    if outcome:
+        if outcome['status'] in ('FAILED', 'PARTIAL'):
+            outcome_area.warning(status_message(outcome))
+        elif outcome['status'] == 'COMPLETED':
+            outcome_area.success('이번 보고서 작성이 완료되었습니다. 검토용 초안이 저장되었습니다.')
+        else:
+            outcome_area.info(status_message(outcome) + '\n\n완료 기록이 없습니다. 실행이 멈췄다면 이어서 작성할 수 있습니다.')
 with report_area.container():
     show_report(h)
 
 if start or resume:
     # Check service before accepting a new run. Do not silently create a zero-result case.
     live = start or (h and h.state.mode == "LIVE")
+    stage, current_question = "LLM 서버 연결 확인", ""
     try:
+        if h:
+            checkpoint(h, "RUNNING", stage)
         if live:
             client = ColabClient()
             client.check()
@@ -124,12 +138,18 @@ if start or resume:
         activity = st.empty()
         writing = st.empty()
         def status(action, question):
+            global stage, current_question
             labels = {"plan": "검토 질문과 확인 계획을 세우고 있습니다", "reframe": "검토 방향을 조정하고 있습니다",
                 "search": "관련 근거를 검색하고 있습니다", "read": "원문과 주석을 확인하고 있습니다",
                 "dataset": "계산에 필요한 자료를 구성하고 있습니다", "calculate": "Python으로 계산하고 있습니다",
                 "conclude": "근거를 종합해 판단을 정리하고 있습니다"}
-            activity.info(f"{question}\n\n{labels.get(action, '판단을 검토하고 있습니다')}.")
+            stage, current_question = labels.get(action, '판단 검토'), question
+            checkpoint(h, "RUNNING", stage, question)
+            activity.info(f"{question}\n\n{stage}.")
         def write_section(fid=None):
+            global stage
+            stage = "종합심사의견 본문 출력" if fid is None else f"{FACTORS[fid]['name']} 본문 출력"
+            checkpoint(h, "RUNNING", stage, current_question)
             activity.info("종합심사의견을 작성하고 있습니다." if fid is None else f"{FACTORS[fid]['name']} 판단을 보고서로 작성하고 있습니다.")
             try:
                 with writing.container():
@@ -137,7 +157,7 @@ if start or resume:
                     st.write_stream(h.stream_narrative(fid))
             except Exception as error:
                 h.store.event(action="narrative", factor_id=fid, status="ERROR", error=str(error))
-                activity.info("본문 출력이 중단되어 확보된 판단을 표시합니다.")
+                raise
             finally:
                 writing.empty()
                 with report_area.container():
@@ -160,6 +180,8 @@ if start or resume:
                     else:
                         status("review", question)
                     factor = h.step(fid, max_steps=24, repair_attempts=2, on_status=status)
+                    if factor.error and service_failure(factor.error):
+                        raise RuntimeError(factor.error)
                     if factor.judgement or factor.status in ("ERROR", "LIMIT_REACHED", "NO_PROGRESS"):
                         break
                 if live and factor.judgement:
@@ -170,24 +192,27 @@ if start or resume:
                 progress.progress((i + 1) / len(targets), text="심사보고서 작성 중")
             if any(f.judgement for f in h.state.factors.values()):
                 try:
+                    stage = "요인별 판단 종합"
+                    checkpoint(h, "RUNNING", stage, current_question)
                     activity.info("요인별 판단의 상충관계와 상환능력 영향을 종합하고 있습니다.")
                     h.synthesize()
                     if live:
                         write_section()
                 except Exception as error:
                     h.store.event(action="synthesis", status="ERROR", error=str(error))
-                    st.session_state.generation_message = "종합의견 작성이 중단되었습니다. 작성된 보고서 본문은 보존했습니다."
+                    raise
             else:
-                st.session_state.generation_message = "보고서 생성이 완료되지 않았습니다. 연결 및 실행 오류를 확인해야 합니다."
+                raise ValueError("Analysis validation failed: no supported judgements")
+        incomplete = [f for f in h.state.factors.values() if not f.judgement]
+        checkpoint(h, "PARTIAL" if incomplete else "COMPLETED", "보고서 저장", reason=
+            "일부 요인 분석이 검증 또는 실행 한도에서 종료되어 부분 보고서로 저장했습니다." if incomplete else "")
         progress.empty()
         activity.empty()
     except Exception as error:
         if h:
             h.store.event(action="report_generation", status="ERROR", error=str(error))
-        if not locals().get("client") or "LLM" in str(error) or "model" in str(error).lower():
-            st.session_state.generation_message = "LLM 서버에 연결되지 않아 보고서를 작성하지 못했습니다. Colab 서버 연결이 필요합니다."
-        else:
-            st.session_state.generation_message = "보고서 작성을 시작하지 못했습니다. 자료 또는 서버 연결을 확인해야 합니다."
+            checkpoint(h, "FAILED", stage, current_question, explain_failure(error))
+        st.session_state.generation_message = explain_failure(error)
     st.rerun()
 
 if h and report_document(h)["sections"]:
