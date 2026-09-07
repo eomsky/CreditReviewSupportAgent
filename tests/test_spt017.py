@@ -64,3 +64,20 @@ def test_adapter_saves_master_and_chunks(tmp_path,monkeypatch):
     saved=json.loads((tmp_path/'assets'/'MASTER.json').read_text(encoding='utf-8'))
     assert saved['raw_document']==master['raw_document']
     assert json.loads((tmp_path/'assets'/'manifest.json').read_text())['pipeline']=='spt017-structural-v1'
+
+
+def test_cached_inference_preserves_structure_and_scalar_semantics():
+    from copy import deepcopy
+    from credit_review.spt_inference_cache import CachedStructuralBuilder
+    raw=raw_document()
+    # Two physical segments exercise document-wide continuity and header inference.
+    second=deepcopy(raw['physical_tables'][0])
+    second.update(table_id='P0002_T001',page=2)
+    second['matrix']=[['Category','2024','2025'],['Assets','1,000','1,200'],['Debt','(10)','-']]
+    raw['physical_tables'].append(second)
+    raw['pages'].append({**raw['pages'][0],'page':2}); raw['page_count']=2
+    plain=StructuralBuilder(); cached=CachedStructuralBuilder()
+    assert plain.build(deepcopy(raw))==cached.build(deepcopy(raw))
+    for value in [None,0,False,True,1,1.0,' 1,234 ', '(123)', '2025.01.01','해당없음','USD 10',[],{'x':1}]:
+        for name in ['_clean','_numeric','_value_kind','_value_kind_v015','_content_type']:
+            assert getattr(plain,name)(value)==getattr(cached,name)(value)

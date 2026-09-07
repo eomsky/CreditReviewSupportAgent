@@ -3,6 +3,7 @@ from functools import lru_cache
 from pathlib import Path
 import hashlib
 import json
+import os
 import joblib
 import sklearn
 
@@ -43,6 +44,10 @@ StructuralBuilder = install_v017_builder(install_v016_builder(install_v015_build
 
 def extract_document(path):
     raw = PDFExtractor().extract(str(path))
-    master = StructuralBuilder().build(raw)
+    builder = StructuralBuilder
+    if os.environ.get('CREDIT_SPT_CACHE', '1') == '1':
+        from credit_review.spt_inference_cache import CachedStructuralBuilder
+        builder = CachedStructuralBuilder
+    master = builder().build(raw)
     chunks = ChunkBuilder(representation_level=ChunkRepresentationLevel.HIERARCHICAL).build(master)
     return master, chunks
