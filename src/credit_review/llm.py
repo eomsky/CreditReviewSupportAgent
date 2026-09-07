@@ -63,7 +63,7 @@ class ColabClient:
             if self.model not in available:
                 raise ValueError("Configured model is not served by the LLM endpoint")
 
-    def complete(self, system: str, context: dict, schema=None) -> str:
+    def complete(self, system: str, context: dict, schema=None, request_options=None) -> str:
         serialized = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
         if len(serialized) > int(os.environ.get("LLM_MAX_CONTEXT_CHARS", "120000")):
             raise ValueError("Context exceeds configured budget; narrow evidence before retrying")
@@ -74,14 +74,26 @@ class ColabClient:
                 json={"model": self.model, "temperature": 0.1, "max_tokens": 6000,
                       "response_format": {"type": "json_schema", "json_schema": {"name": "action", "schema": schema}} if schema else {"type": "json_object"},
                       "messages": [{"role": "system", "content": system},
-                                   {"role": "user", "content": serialized}]})
+                                   {"role": "user", "content": serialized}], **(request_options or {})})
             if response.status_code == 400:
                 detail = response.text.lower()
                 if "context" in detail or "input_tokens" in detail:
                     raise ValueError("Context exceeds model token budget; narrow evidence using read/search")
                 raise RuntimeError("LLM request rejected: HTTP 400; incompatible request schema")
             response.raise_for_status()
-            return structured_content(response.json()["choices"][0]["message"]["content"])
+            result = response.json()
+            choice = result['choices'][0]
+            try:
+                if choice.get('finish_reason') not in (None, 'stop'):
+                    raise ValueError('LLM JSON output truncated; reduce batch size')
+                return structured_content(choice['message']['content'])
+            except ValueError:
+                from uuid import uuid4
+                from .store import atomic_json
+                atomic_json(Path(os.environ.get('CREDIT_WORKSPACE', 'workspace'))/'llm_failures'/(uuid4().hex+'.json'),
+                    {'finish_reason':choice.get('finish_reason'), 'usage':result.get('usage'),
+                     'content':choice['message'].get('content')})
+                raise
 
     def next_action(self, context: dict) -> str:
         prompt = (Path(__file__).parent / "prompts" / "factor.md").read_text(encoding="utf-8")
@@ -120,6 +132,7 @@ class ColabClient:
     def next_actions(self, context):
         prompt = (Path(__file__).parent / 'prompts' / 'group.md').read_text(encoding='utf-8')
         schema = BatchActions.model_json_schema()
+        schema['properties']['actions']['maxItems'] = len(context['factors'])
         schema['$defs']['FactorAction']['properties']['factor_id']['enum'] = list(context['factors'])
         properties = schema['$defs']['Action']['properties']
         payloads = {'plan':'inquiry','reframe':'inquiry','search':'query','read':'source_ids',
@@ -136,7 +149,8 @@ class ColabClient:
                 branch['properties']['inquiry'] = {'$ref':'#/$defs/Inquiry'}
             choices.append(branch)
         schema['$defs']['Action'] = {'anyOf':choices}
-        return self.complete(prompt, context, schema)
+        return self.complete(prompt, context, schema,
+            request_options={'chat_template_kwargs':{'enable_thinking':False}})
 
     def stream_report(self, context):
         prompt = ('확보된 분석을 기업여신 심사보고서 본문으로 편집한다. 한국어 Markdown 문단과 필요한 표만 출력한다. '

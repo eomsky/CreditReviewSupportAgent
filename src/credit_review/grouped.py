@@ -93,6 +93,7 @@ def analyse_grouped(h, targets, concurrency=2, metrics=None, rounds=4):
                     break
                 for fid in pending:
                     queue.put(('status', fid, {'action': 'review', 'question': '공통 원문·자료를 활용한 요인 분석'}))
+                pending = pending[:3]
                 context = group_context(worker, pending)
                 request = worker.store.put('group_input', context)
                 raw = worker.client.next_actions(context)

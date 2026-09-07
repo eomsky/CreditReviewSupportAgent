@@ -37,7 +37,7 @@ def test_batch_schema_requires_nonnull_payload_for_every_action():
     from credit_review.llm import ColabClient
     client = object.__new__(ColabClient)
     captured = {}
-    def complete(prompt, context, schema):
+    def complete(prompt, context, schema, **kwargs):
         captured.update(schema)
         return '{}'
     client.complete = complete

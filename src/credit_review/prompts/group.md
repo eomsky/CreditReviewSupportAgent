@@ -17,3 +17,5 @@ Dataset의 entity/scope/value_type/columns/period_column/rows/cell_sources를 �
 conclude에는 실제 evidence_ids, calculation_ids, requirement별 근거, 위험/완화/미확인/상충을 포함한다.
 요구 증거가 없는 항목은 누락을 보존하고 지원되는 범위에서 조건부 서술한다. 후보를 발견한 것만으로 충족 판정하지 않는다.
 summary는 그대로 보고서에 표시할 완결된 한국어 문단이다. JSON/변수명/진행 안내는 본문에 넣지 않는다.
+이 단계는 근거가 준비된 항목의 신속한 검토다. 복잡한 인과관계·상충은 심층 검토로 남긴다. 긴 설명 대신 짧은 검토 질문·반증 조건·판단 요약을 구조화한다.
+reason은 한 문장, inquiry의 각 배열은 핵심 1~2개, summary는 3~5문장으로 작성한다. 충분한 원문이 있으면 형식적인 plan/search를 반복하지 않는다.
