@@ -135,6 +135,21 @@ class ColabClient:
         schema['properties']['actions']['maxItems'] = len(context['factors'])
         schema['$defs']['FactorAction']['properties']['factor_id']['enum'] = list(context['factors'])
         properties = schema['$defs']['Action']['properties']
+        evidence = sorted({sid for f in context['factors'].values() for sid in f.get('state',{}).get('evidence_ids',[])})
+        def references(field, ids):
+            if ids:
+                field['items'] = {'type':'string','enum':list(ids)}
+            else:
+                field.pop('minItems', None)
+                field['maxItems'] = 0
+        references(properties['source_ids'], evidence)
+        references(properties['reuse_dataset_ids'], context.get('shared_datasets',{}))
+        references(schema['$defs']['Calculation']['properties']['dataset_ids'], context.get('datasets',{}))
+        judgement = schema['$defs']['Judgement']['properties']
+        references(judgement['evidence_ids'], evidence)
+        references(judgement['calculation_ids'], context.get('calculations',{}))
+        references(judgement['requirements']['additionalProperties'], evidence)
+        references(schema['$defs']['Dataset']['properties']['cell_sources']['items']['additionalProperties'], evidence)
         payloads = {'plan':'inquiry','reframe':'inquiry','search':'query','read':'source_ids',
                     'dataset':'dataset','calculate':'calculation','reuse':'reuse_dataset_ids','conclude':'judgement'}
         choices = []

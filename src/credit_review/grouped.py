@@ -26,6 +26,14 @@ def group_context(worker, ids):
         related.update(context.pop('related_findings'))
         reusable.update(context.pop('shared_datasets'))
         factors[fid] = context
+    # All members actually receive this common source payload. Register it as
+    # available evidence for each member without marking any requirement fulfilled.
+    shared_ids = set(sources)
+    worker.retriever.read(sorted(shared_ids))
+    for fid in ids:
+        f = worker.state.factors[fid]
+        f.evidence_ids = sorted(set(f.evidence_ids) | shared_ids)
+        factors[fid]['state']['evidence_ids'] = list(f.evidence_ids)
     # Common payloads appear once; every factor retains its actual provenance IDs.
     result = {'review_date': str(worker.state.review_date), 'factors': factors,
               'sources': sources, 'datasets': datasets, 'calculations': calculations,

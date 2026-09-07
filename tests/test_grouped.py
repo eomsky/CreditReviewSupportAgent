@@ -86,6 +86,20 @@ def test_group_rejects_foreign_factor_and_unknown_evidence(tmp_path):
     assert h.state.factors['F13'].judgement is None
 
 
+def test_common_source_payload_can_be_cited_by_each_group_member(tmp_path):
+    h = make(tmp_path)
+    h.prepare_evidence('F01')
+    h.state.factors['F02'].evidence_ids = []
+    context = group_context(h, ['F01','F02'])
+    sid = next(iter(context['sources']))
+    assert sid in h.state.factors['F02'].evidence_ids
+    assert not h.state.factors['F02'].requirements_met
+    apply_group_reply(h, ['F02'], json.dumps({'actions':[{'factor_id':'F02','action':{
+        'action':'conclude','reason':'shared source read','judgement':{
+            'summary':'공통 원문에서 확인된 범위', 'evidence_ids':[sid],'missing':['full history']}}}]}), 'test')
+    assert h.state.factors['F02'].judgement.evidence_ids == [sid]
+
+
 def test_unresolved_group_uses_adaptive_search_instead_of_forced_conclusion(tmp_path):
     class Client:
         individual = 0
