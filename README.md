@@ -2,6 +2,8 @@
 
 Codespaces 단계형 기업여신 심사 테스트 하네스. Colab은 LLM 서버이며 기존 운영/HTML 자산은 포함하지 않습니다.
 
+다른 PC에서 이어가기: [인수인계 안내](docs/HANDOVER_NEW_PC_2026-09-08.md). 2026-09-08까지의 프로젝트는 `main`에 반영했으며, 개발 브랜치는 `codex/credit-review-harness`입니다.
+
 ## 실행
 
 ```bash
