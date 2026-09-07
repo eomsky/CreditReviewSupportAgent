@@ -3,7 +3,7 @@ import os
 import re
 from pathlib import Path
 import httpx
-from .models import Action
+from .models import Action, BatchActions
 
 
 def structured_content(content):
@@ -115,6 +115,12 @@ class ColabClient:
                            ("calculate", datasets), ("reuse", reusable)) if not ids}
             allowed = [action for action in allowed if action not in unavailable]
         schema["properties"]["action"]["enum"] = allowed
+        return self.complete(prompt, context, schema)
+
+    def next_actions(self, context):
+        prompt = (Path(__file__).parent / 'prompts' / 'group.md').read_text(encoding='utf-8')
+        schema = BatchActions.model_json_schema()
+        schema['$defs']['FactorAction']['properties']['factor_id']['enum'] = list(context['factors'])
         return self.complete(prompt, context, schema)
 
     def stream_report(self, context):

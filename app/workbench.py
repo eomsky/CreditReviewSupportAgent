@@ -8,6 +8,7 @@ from uuid import uuid4
 from datetime import date
 from contextlib import ExitStack
 from time import monotonic
+from time import sleep
 from pathlib import Path
 
 import streamlit as st
@@ -34,6 +35,10 @@ importlib.reload(reporting_module)
 import credit_review.parallel as parallel_module
 importlib.reload(parallel_module)
 from credit_review.parallel import analyse_factors, run_lease, Measurements, MeasuredClient
+import credit_review.grouped as grouped_module
+importlib.reload(grouped_module)
+from credit_review.grouped import analyse_grouped
+from credit_review.ingestion import prepare_upload
 from credit_review.store import atomic_json
 from credit_review.registry import FACTORS
 from credit_review.reporting import report_document, report_markdown
@@ -48,6 +53,8 @@ class LazyLiveClient:
         return ColabClient().next_action(context)
     def synthesize(self, context):
         return ColabClient().synthesize(context)
+    def next_actions(self, context):
+        return ColabClient().next_actions(context)
     def stream_report(self, context):
         yield from ColabClient().stream_report(context)
 
@@ -98,6 +105,26 @@ with st.sidebar:
     else:
         message_area.empty()
 
+# Start expensive preparation on upload, before the employee requests analysis.
+preparation = [(file.name, prepare_upload(ROOT, file.getvalue(), file.name, published, retry=start))
+               for file in upload]
+
+@st.fragment(run_every=1)
+def preparation_status():
+    if not preparation:
+        return
+    ready = sum(f.done() and f.exception() is None for _, f in preparation)
+    failed = sum(f.done() and f.exception() is not None for _, f in preparation)
+    if failed:
+        st.caption('일부 자료 준비에 실패했습니다. 분석 시작 시 재시도합니다.')
+    elif ready == len(preparation):
+        st.caption(f'자료 {ready}개 준비 완료')
+    else:
+        st.caption(f'본문·표 준비 중: {ready}/{len(preparation)}개 완료')
+
+with st.sidebar:
+    preparation_status()
+
 h = st.session_state.get("harness")
 if h:
     # Rehydrate persisted state after deployments; retain uploaded browser files.
@@ -144,27 +171,25 @@ if start or resume:
             stage = "PDF 본문 및 표 구조 분석"
             identifier(case_id)
             sources = []
-            for file in upload:
-                if file.name.lower().endswith(".json"):
-                    sources.extend(from_json(file.getvalue()))
-                else:
-                    folder = ROOT / "cases" / case_id / "sources"
-                    folder.mkdir(parents=True, exist_ok=True)
-                    path = folder / (hashlib.sha256(file.getvalue()).hexdigest() + ".pdf")
-                    path.write_bytes(file.getvalue())
-                    cache_path = folder / (path.stem + f"_{published}_{PIPELINE_VERSION}.json")
-                    with st.spinner(f"{file.name}의 본문과 표를 준비하고 있습니다."):
-                        if cache_path.exists():
-                            extracted = from_json(cache_path.read_bytes())
-                        else:
-                            extracted = from_pdf(path, published, folder / (path.stem + "_" + PIPELINE_VERSION))
-                            atomic_json(cache_path, {'sources': [s.model_dump(mode='json') for s in extracted]})
-                    sources.extend(extracted)
+            input_hashes = set()
+            for name, future in preparation:
+                waiting = monotonic()
+                while not future.done():
+                    outcome_area.info(f'{name}의 본문·표를 준비하고 있습니다. 준비 완료 후 분석을 시작합니다.')
+                    sleep(0.3)
+                prepared = future.result()
+                metrics.record('preparation_wait', waiting, prepared['cached'])
+                if prepared['document_hash'] in input_hashes:
+                    continue
+                input_hashes.add(prepared['document_hash'])
+                sources.extend(from_json(json.dumps({'sources':prepared['sources']}).encode()))
             if not sources or not any(s.text.strip() and s.published_at <= cutoff for s in sources):
                 raise ValueError("No readable evidence within review date")
             if len({s.id for s in sources}) != len(sources):
                 raise ValueError("Duplicate evidence IDs")
             h = Harness.create(ROOT, case_id, cutoff, sources, client, "LIVE", os.environ.get("EMBEDDING_MODEL", ""))
+            h.state.review_strategy = 'grouped'
+            h.save()
             st.session_state.harness = h
         else:
             h.client = client
@@ -204,7 +229,8 @@ if start or resume:
         targets = ["F24"] if h.state.mode == "DEMO" else list(FACTORS)
         with st.spinner("심사보고서를 작성하고 있습니다."):
             questions = {}
-            for event in analyse_factors(h, targets, concurrency=2 if live else 1, metrics=metrics):
+            engine = analyse_grouped if live and h.state.review_strategy == 'grouped' else analyse_factors
+            for event in engine(h, targets, concurrency=2 if live else 1, metrics=metrics):
                 kind, fid = event['kind'], event.get('factor_id')
                 if kind == 'status':
                     value = event['value']

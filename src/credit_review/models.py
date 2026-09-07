@@ -111,6 +111,15 @@ class Action(Model):
         return self
 
 
+class FactorAction(Model):
+    factor_id: str
+    action: Action
+
+
+class BatchActions(Model):
+    actions: list[FactorAction] = Field(min_length=1, max_length=7)
+
+
 class FactorState(Model):
     factor_id: str
     applicability: Literal["REQUIRED", "OPTIONAL", "NOT_APPLICABLE"] = "REQUIRED"
@@ -142,3 +151,4 @@ class ReviewState(Model):
     factors: dict[str, FactorState]
     generation_status: str = "BLOCKED"
     report_id: str | None = None
+    review_strategy: Literal['adaptive', 'grouped'] = 'adaptive'

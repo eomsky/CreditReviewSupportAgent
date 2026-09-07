@@ -64,6 +64,9 @@ class MeasuredClient:
     def synthesize(self, context):
         return self._call('synthesize', context)
 
+    def next_actions(self, context):
+        return self._call('next_actions', context)
+
     def stream_report(self, context):
         started = monotonic()
         try:
