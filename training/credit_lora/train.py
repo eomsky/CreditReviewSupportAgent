@@ -47,7 +47,11 @@ def main():
     p.add_argument('--gradient-accumulation',type=int,default=4)
     p.add_argument('--learning-rate',type=float,default=2e-5)
     p.add_argument('--checkpoint-steps',type=int,default=4)
+    p.add_argument('--stop-after-resumed-steps',type=int,
+                   help='Recovery smoke test: stop after N additional steps without changing the original LR schedule')
     a=p.parse_args(); a.run.mkdir(parents=True,exist_ok=True)
+    if a.stop_after_resumed_steps is not None and (not a.resume or not a.stage or a.stop_after_resumed_steps<1):
+        p.error('--stop-after-resumed-steps requires --resume, --stage and a positive value')
     os.environ['TOKENIZERS_PARALLELISM']='false'
     os.environ['WANDB_DISABLED']='true'
     import torch
@@ -117,6 +121,11 @@ def main():
     class Progress(TrainerCallback):
         def __init__(self,stage,stage_deadline):
             self.stage=stage; self.deadline=stage_deadline; self.started=time.time(); self.last_progress=time.time()
+            self.resume_start=None
+        def on_train_begin(self,args,state,control,**kwargs):
+            self.resume_start=state.global_step
+            if a.stop_after_resumed_steps is not None:
+                print('RECOVERY_START',state.global_step,'additional_steps',a.stop_after_resumed_steps,flush=True)
         def on_log(self,args,state,control,logs=None,**kwargs):
             record={'stage':self.stage,'step':state.global_step,'seconds':round(time.time()-self.started,2),
                     'time':datetime.now(timezone.utc).isoformat(),'logs':logs or {},
@@ -126,7 +135,9 @@ def main():
             print('PROGRESS',json.dumps(record),flush=True)
         def on_step_end(self,args,state,control,**kwargs):
             self.last_progress=time.time()
-            if stop_requested or time.time()>=self.deadline or time.time()>=deadline:
+            recovered_enough=(a.stop_after_resumed_steps is not None and self.resume_start is not None
+                              and state.global_step>=self.resume_start+a.stop_after_resumed_steps)
+            if stop_requested or time.time()>=self.deadline or time.time()>=deadline or recovered_enough:
                 control.should_training_stop=True; control.should_save=True
             return control
         def on_save(self,args,state,control,**kwargs):
@@ -169,6 +180,7 @@ def main():
             'best_validation_loss':trainer.state.best_metric,'train_metrics':result.metrics,'merged':False})
         package(best,a.run/'backup_queue'/f'{stage}-best-adapter.zip')
         manifest['stages'][stage]={'adapter':str(best),'steps':trainer.state.global_step,
+            'planned_steps':steps,'recovery_start_step':callback.resume_start if a.resume else None,
             'best_validation_loss':trainer.state.best_metric,'metrics':result.metrics,
             'finished_at':datetime.now(timezone.utc).isoformat()}
         atomic(a.run/'run_manifest.json',manifest)
@@ -176,7 +188,14 @@ def main():
         del trainer
         import gc; gc.collect(); torch.cuda.empty_cache()
     manifest['finished_at']=datetime.now(timezone.utc).isoformat()
-    manifest['status']='COMPLETE' if len(manifest['stages'])==len([a.stage] if a.stage else STAGES) else 'STOPPED_DEADLINE_OR_SIGNAL'
+    all_stages=len(manifest['stages'])==len([a.stage] if a.stage else STAGES)
+    if a.stop_after_resumed_steps is not None:
+        recovered=manifest['stages'].get(a.stage,{})
+        enough=recovered.get('steps',0)-int(recovered.get('recovery_start_step') or 0)>=a.stop_after_resumed_steps
+        manifest['status']='RECOVERY_SMOKE_COMPLETE' if enough else 'RECOVERY_SMOKE_INCOMPLETE'
+    else:
+        all_steps=all(x['steps']>=x['planned_steps'] for x in manifest['stages'].values())
+        manifest['status']='COMPLETE' if all_stages and all_steps else 'STOPPED_EARLY'
     atomic(a.run/'run_manifest.json',manifest)
     print('TRAINING_END',manifest['status'],flush=True)
 

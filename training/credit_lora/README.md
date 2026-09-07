@@ -75,6 +75,14 @@ restored.zip` verifies each piece and the complete archive before publishing it.
 Do not extract or resume an incomplete archive. A recovery checkpoint includes
 optimizer state; a stage-best adapter is intended for inference/next-stage SFT.
 
+For a bounded recovery check, keep the original training schedule and add
+`--stage factor_style --resume RESTORED_CHECKPOINT --stop-after-resumed-steps 4`
+with a new run directory. This stops after four additional optimizer steps and
+records `RECOVERY_SMOKE_COMPLETE`; it does not label the full curriculum complete.
+If the copied Trainer state points to a relocated best checkpoint, update that
+path only in the restored copy after verifying which checkpoint was best. Retain
+the original state and archive hash in the recovery audit.
+
 `watch_training.py PID RUN --deadline ISO_TIMESTAMP` watches only the identified
 training process. Ten minutes without progress or the absolute deadline requests
 a checkpoint-saving stop; a further two-minute grace precedes forced termination.
