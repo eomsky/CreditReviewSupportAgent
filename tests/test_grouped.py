@@ -101,6 +101,16 @@ def test_common_source_payload_can_be_cited_by_each_group_member(tmp_path):
     assert h.state.factors['F02'].judgement.evidence_ids == [sid]
 
 
+def test_conflicting_group_judgement_is_reserved_for_deep_review(tmp_path):
+    h = make(tmp_path)
+    apply_group_reply(h, ['F03'], json.dumps({'actions':[{'factor_id':'F03','action':{
+        'action':'conclude','reason':'conflicting documents','judgement':{
+            'summary':'지분율 자료 상충', 'evidence_ids':[], 'conflicts':['two ownership figures']}}}]}), 'test')
+    f = h.state.factors['F03']
+    assert f.judgement is None and f.status == 'GROUP_DEEP_REVIEW'
+    assert any(a['stage']=='group_provisional_judgement' for a in h.store.artifacts())
+
+
 def test_unresolved_group_uses_adaptive_search_instead_of_forced_conclusion(tmp_path):
     class Client:
         individual = 0

@@ -16,7 +16,11 @@ validated and shared once inside a group; Python executes proposed calculations,
 and subsequent LLM responses interpret the returned results. Reference validation
 is unchanged. Candidate evidence is not semantic verification.
 
-Two groups can run simultaneously. There are at most four grouped rounds before
+Two groups can run simultaneously, with at most three factors per response.
+The fast pass requests concise structured reasoning summaries with Gemma's extended
+thinking disabled; unresolved work retains the original adaptive reasoning path.
+vLLM compact JSON decoding prevents whitespace-only output loops.
+There are at most four grouped rounds before
 unresolved work returns to the existing adaptive search/reframe/calculation loop.
 Repayment capacity (F24) and overall risk (F30) follow prerequisite analyses.
 Completed factors are skipped on resume, and each accepted judgement immediately
@@ -28,3 +32,8 @@ count optimization, not a guaranteed wall-clock speedup. Measure cold upload,
 prepared-input first content, total completion, fallback rate and content coverage
 with the same source documents. Shared calculations do not replace source or
 semantic verification.
+
+Live smoke validation on 2026-09-07 with saved STX annual-report evidence:
+F01/F02/F03 produced reference-validated judgements in one Gemma call, 14.78 seconds
+total (11.86 seconds in the LLM call). This excludes initial PDF extraction, is
+not a 30-factor completion benchmark, and does not establish semantic accuracy.

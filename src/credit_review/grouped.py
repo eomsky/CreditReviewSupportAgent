@@ -9,6 +9,7 @@ from .models import BatchActions, Action
 from .parallel import WorkerHarness, CachedTools, Measurements, analyse_factors
 from .store import atomic_json
 from .run_health import service_failure
+from .registry import FACTORS
 
 GROUPS = [('F01','F02','F03','F04','F05'), ('F06','F07','F08','F09'),
           ('F10','F11','F12'), ('F13','F14','F15','F16'), ('F17','F18','F19'),
@@ -65,6 +66,14 @@ def apply_group_reply(worker, ids, raw, parent, on_status=None):
         worker.apply(fid, action, parent)
         f.error = None
         f.failed_response = None
+        if action.action == 'conclude' and (action.judgement.conflicts or
+                (FACTORS[fid]['critical'] and (action.judgement.missing or f.coverage < 1))):
+            # Reference validation alone does not settle a material disputed issue.
+            worker.store.put('group_provisional_judgement', {'factor_id':fid,
+                'judgement':action.judgement.model_dump()}, [parent])
+            f.judgement = None
+            f.status = 'GROUP_DEEP_REVIEW'
+            f.error = 'Grouped review found conflicts or material evidence gaps; perform focused verification.'
         updated.append(fid)
         worker.store.event(action=action.action, factor_id=fid, grouped=True)
         # Broadcast only validated datasets and executed calculations, never predicted values.
@@ -96,7 +105,8 @@ def analyse_grouped(h, targets, concurrency=2, metrics=None, rounds=4):
             for fid in ids:
                 worker.prepare_evidence(fid)
             for _ in range(rounds):
-                pending = [fid for fid in ids if not worker.state.factors[fid].judgement]
+                pending = [fid for fid in ids if not worker.state.factors[fid].judgement
+                           and worker.state.factors[fid].status != 'GROUP_DEEP_REVIEW']
                 if not pending or stop.is_set():
                     break
                 for fid in pending:
