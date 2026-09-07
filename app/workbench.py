@@ -29,6 +29,8 @@ import credit_review.table_access as table_access_module
 # Streamlit preserves imported modules between reruns. Refresh the small,
 # stateless client so a deployed connection fix applies without losing uploads.
 importlib.reload(models_module)
+import credit_review.batch_protocol as batch_protocol_module
+importlib.reload(batch_protocol_module)
 ColabClient = importlib.reload(llm_module).ColabClient
 importlib.reload(table_access_module)
 importlib.reload(retrieval_module)

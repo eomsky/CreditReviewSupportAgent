@@ -20,6 +20,7 @@ inquiry에는 question, hypotheses(배열), evidence_tests(배열), change_reaso
 새 Dataset 응답은 entity/scope/value_type/columns/period_column/records를 채운다. records의 각 원소는 values(열 이름→값)와 sources(같은 열 이름→실제 원문 ID 배열)를 함께 가진다. 세 행이면 records 원소도 세 개이며 각 행의 기간을 포함한 모든 non-null 셀의 출처가 필요하다. 출처를 첫 행에만 모으지 않는다. 저장된 datasets의 rows/cell_sources 형식은 시스템이 이 records를 변환한 것이다.
 데이터셋은 현재 계산에 필요한 열과 기간만 추출한다. period_column은 columns에 실제 존재하는 열 이름이어야 하며 N/A 같은 가짜 이름을 쓰지 않는다. 각 values의 키는 columns의 name과 정확히 일치해야 한다. 정성 항목은 계산 필요성이 없다면 데이터셋을 만들지 않는다.
 동일한 표를 요인마다 다시 만들지 않는다. 기존 datasets의 범위·기간·단위가 맞으면 그대로 사용한다.
+number/integer 열은 unit에 원문에서 확인한 단위를 반드시 별도로 기재한다. 열 이름에 단위가 있어도 unit을 생략하지 않는다. 예: 원문이 백만원이면 unit="백만원", 가동률이 %이면 unit="%". 단위를 확인할 수 없으면 추측하지 말고 해당 자료의 단위/각주를 먼저 확보한다. 연도·기간은 string으로 보존할 수 있다.
 계산은 calculate로 Python에 위임한다. dfs[실제 dataset ID]를 사용하며 pd/np 사용 가능, result 변수에 JSON 직렬화 가능한 값을 저장한다.
 실행 전 계산값을 예상해 conclude하지 않는다. 다음 응답의 calculations에 성공한 결과가 있을 때만 이를 해석한다.
 공통 계산 결과도 다음 응답에서 공유된다. 계산 실패 결과는 인용하지 말고 원인을 고쳐 재계산한다.

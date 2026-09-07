@@ -100,3 +100,32 @@ Code `2c82eef`, fast-forward verified in Codespaces. Same prepared STX input and
 Keep the bounded queue for the observed coverage gain. Next bottleneck is
 redundant evidence reads and invalid dataset construction, not a demonstrated
 shortage of RAM or a long idle interval between HTTP requests.
+## Paired rows, reread constraints and live report view
+
+Code `09db8ad`, verified in Codespaces. User extended this test's watchdog to
+**90 seconds**; the finished-report target remains one minute. Same saved STX
+extraction. Run `run_384930aab37c4bedb285206587edc992`.
+
+- At **60.392s** analysis time: **8/30** judgements. This milestone excludes
+  preflight/upload/OCR; it is not exactly the prior wall-clock watchdog boundary.
+- At **69.122s**: **9/30** judgements, 8 marked fulfilled and F03 qualified.
+  Stopped after two follow-ups produced no new progress. Parent process exited
+  normally at **77.602s**, before the 90s cap. Full report incomplete.
+- First opinion **30.402s**, versus 27.124s in the previous queue run. No first
+  content latency improvement. More opinions with a longer budget does not
+  demonstrate a major report-completion speedup.
+- Ten completed calls. Returned actions: 22 read, 9 conclude, 4 dataset, 2 search,
+  1 reuse. Missing numeric units blocked F10/F11/F12. Previous row/provenance
+  length errors were not seen. No calculate action was returned.
+- HTTP occupancy **93.83%**; local apply/HTTP overlap **0.151s**. Neither is a
+  hardware utilization measurement.
+- Live viewer at `?benchmark=latest` showed the current run's paragraphs growing
+  and then changed to ended status. It only reads saved state/artifacts; it never
+  calls the LLM, rebuilds indexes, or writes analysis state. Verified by UI test
+  and actual browser observation. **77 tests passed in 4.06s** before deployment.
+
+Follow-up schema correction requires a nonempty explicit unit for numeric
+columns, matching existing validation; column names alone do not supply units.
+Unknown units must still be read from evidence, never invented. This correction
+is locally tested but has not had another live timing run. No extended rerun was
+performed after the stagnation stop.

@@ -47,6 +47,10 @@ def test_three_rows_keep_individual_provenance_and_shape_validation():
     schema = capture_schema({'s0':{},'s1':{},'s2':{}})['$defs']['Dataset']
     assert 'records' in schema['required'] and 'rows' not in schema['properties']
     assert set(schema['properties']['records']['items']['required']) == {'values','sources'}
+    columns = capture_schema({'s0':{}})['$defs']['Column']['anyOf']
+    numeric = next(c for c in columns if 'number' in c['properties']['dtype']['enum'])
+    assert 'unit' in numeric['required']
+    assert numeric['properties']['unit'] == {'type':'string','minLength':1}
 
 
 def test_all_requested_read_bodies_survive_group_context(tmp_path):

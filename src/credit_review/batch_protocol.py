@@ -1,8 +1,18 @@
 """Wire-only row pairing; persistent datasets keep their validated schema."""
 import json
+from copy import deepcopy
 
 
 def pair_dataset_schema(schema):
+    # Runtime numeric validation already requires units. Enforce the same rule
+    # during generation rather than spending another LLM call repairing nulls.
+    column = schema['$defs']['Column']
+    numeric, descriptive = deepcopy(column), deepcopy(column)
+    numeric['properties']['dtype'] = {'type':'string','enum':['number','integer']}
+    numeric['properties']['unit'] = {'type':'string','minLength':1}
+    numeric['required'] = list(dict.fromkeys(numeric['required'] + ['unit']))
+    descriptive['properties']['dtype'] = {'type':'string','enum':['string','boolean']}
+    schema['$defs']['Column'] = {'anyOf':[numeric,descriptive]}
     dataset = schema['$defs']['Dataset']
     props = dataset['properties']
     values, sources = props.pop('rows'), props.pop('cell_sources')
