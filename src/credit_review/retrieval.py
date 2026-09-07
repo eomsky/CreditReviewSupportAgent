@@ -11,6 +11,8 @@ from .table_access import search_text
 class Retriever:
     def __init__(self, sources: list[Source], cutoff: date, embedding_model: str = ""):
         self.sources = {s.id: s for s in sources if s.published_at <= cutoff}
+        from .section_context import attach_section_context
+        self.sources = attach_section_context(self.sources)
         # Table chunks can omit the statement title (notably connected/separate).
         # Carry the actual page opening as labelled context, without mutating the
         # stored extractor artifact or treating an inferred scope as a fact.

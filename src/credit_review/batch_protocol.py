@@ -1,5 +1,7 @@
 """Wire-only row pairing; persistent datasets keep their validated schema."""
 import json
+import re
+from decimal import Decimal
 from copy import deepcopy
 
 
@@ -63,6 +65,7 @@ def unpack_cell_records(reply):
         if 'rows' in data or 'cell_sources' in data:
             raise ValueError('Ambiguous dataset row representations')
         records = data.pop('records')
+        numeric={c['name'] for c in data['columns'] if c['dtype'] in {'number','integer'}}
         rows, provenance = [], []
         for record in records:
             row, refs = {}, {}
@@ -71,6 +74,11 @@ def unpack_cell_records(reply):
                 if name in row:
                     raise ValueError('Duplicate column in extracted record: '+name)
                 row[name], refs[name] = cell['value'], cell['source_ids']
+                if name in numeric and isinstance(row[name],str):
+                    literal=row[name].strip()
+                    if re.fullmatch(r'[+-]?\d+(?:\.\d+)?',literal):
+                        number=Decimal(literal)
+                        row[name]=int(number) if number==number.to_integral_value() else float(number)
             rows.append(row)
             provenance.append(refs)
         data['rows'], data['cell_sources'] = rows, provenance

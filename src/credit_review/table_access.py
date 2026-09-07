@@ -27,6 +27,7 @@ def table_card(row):
                       for u in element.get('units', [])],
         })
     return {'section_path': payload.get('section_path', []), 'tables': tables,
+            'section_context':meta.get('section_context'),
             'page_opening':meta.get('page_opening'),
             'locator': {'source_id': row['id'], 'document_id': row['document_id'],
                         'page': row['page'], 'parent_id': row.get('parent_id')},

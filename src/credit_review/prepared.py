@@ -24,6 +24,8 @@ DISCOVERY = {
     'F10':['주요 매출처 매출 비중','고객 집중도 매출액'],
     'F13':['연결 포괄손익계산서 매출액 영업이익'],
     'F14':['연결 포괄손익계산서 매출액 영업이익'],
+    'F16':['연결 재무상태표 부채총계 자본총계'],
+    'F15':['연결 현금흐름표 영업활동'],
     'F20':['향후 투자 계획','수주상황 수주잔고'],
     'F22':['유동성위험 계약상 잔존만기','금융부채 만기분석'],
     'F24':['연결 현금흐름표 영업활동','차입금 계약상 만기'],
@@ -65,7 +67,12 @@ def evidence_pack(h, ids, extra=None, budget=42000, prefer_consolidated=False):
         candidates = [hit['source'] for hit in hits]
         selected = candidates[:3]
         for query in DISCOVERY.get(fid,[]):
-            selected = [hit['source'] for hit in h.retriever.search(query,limit=2)] + selected
+            discovered=[hit['source'] for hit in h.retriever.search(query,limit=8)]
+            if fid in NUMERIC_INPUTS:
+                discovered=[s for s in discovered if table_card(s)][:2]
+            else:
+                discovered=discovered[:2]
+            selected = discovered + selected
         if fid in NUMERIC_FACTORS:
             selected = [s for s in candidates if table_card(s)][:2] + selected
         by_factor[fid] = list(dict.fromkeys(s['id'] for s in selected))
@@ -77,6 +84,13 @@ def evidence_pack(h, ids, extra=None, budget=42000, prefer_consolidated=False):
         ranked[s['id']] = [s, 100]
     from .evidence_scope import explicit_scope
     has_consolidated=prefer_consolidated and any(explicit_scope(row[0])['scope']=='CONSOLIDATED' for row in ranked.values())
+    if has_consolidated:
+        for entry in ranked.values():
+            card=table_card(entry[0])
+            section=' '.join(str(x) for x in (card or {}).get('section_path',[]))
+            if card and explicit_scope(entry[0])['scope']=='CONSOLIDATED' and any(
+                title in section for title in ('연결 재무상태표','연결 포괄손익계산서','연결 현금흐름표')):
+                entry[1]+=100  # Primary statements precede incidental note matches.
     excluded_scopes=('SEPARATE','CONFLICT') if has_consolidated else ('CONFLICT',) if prefer_consolidated else ()
     packed, used = {}, 0
     for row, score in sorted(ranked.values(), key=lambda v:-v[1]):

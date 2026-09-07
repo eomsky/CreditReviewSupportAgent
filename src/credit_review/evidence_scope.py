@@ -8,7 +8,7 @@ def _labels(text):
     result=set()
     statement=r'(?:재무|포괄손익|손익계산|현금흐름|자본변동)'
     for marker,scope in [('연결','CONSOLIDATED'),('별도','SEPARATE'),('개별','SEPARATE')]:
-        if re.search(marker+statement,text) or re.search(statement+r'[^\n]{0,15}[（(]'+marker+r'[）)]',text):
+        if re.search(marker+statement,text) or re.search(r'[（(]'+marker+r'[）)]',text):
             result.add(scope)
     return result
 
@@ -25,6 +25,11 @@ def explicit_scope(source):
         path=structured.get('section_path') or card.get('section_path') or []
         basis=[json.dumps(path,ensure_ascii=False)] if path else []
         scopes=set().union(*(_labels(t) for t in basis)) if basis else set()
+        # DART contrasts a named consolidated section with the issuer's
+        # unqualified financial statements section. Retain this structural label.
+        if not scopes and any('재무에 관한 사항' in str(t) for t in path):
+            if any(re.fullmatch(r'\s*\d+[.\s]+재무제표\s*',str(t)) for t in path):
+                scopes={'SEPARATE'}
     return {'scope':next(iter(scopes)) if len(scopes)==1 else 'CONFLICT' if scopes else 'UNKNOWN',
             'basis':basis if scopes else [],'method':'explicit_table_title_or_section'}
 
