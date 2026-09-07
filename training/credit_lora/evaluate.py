@@ -15,6 +15,7 @@ def main():
     p.add_argument('--max-seconds',type=float,default=90); p.add_argument('--max-new-tokens',type=int,default=2300)
     p.add_argument('--additional-adapter',type=Path,action='append',default=[])
     p.add_argument('--split',choices=['validation','test'],default='test')
+    p.add_argument('--probe-file',type=Path)
     a=p.parse_args(); a.output.mkdir(parents=True,exist_ok=True)
     import torch
     from transformers import Gemma4ForConditionalGeneration,AutoTokenizer,set_seed
@@ -35,6 +36,11 @@ def main():
     for stage in STAGES:
         source=[json.loads(s) for s in (a.data/f'{stage}_{a.split}.jsonl').read_text().splitlines()]
         rows.extend(stratified(source,a.per_stage,97))
+    if a.probe_file:
+        probes=[json.loads(s) for s in a.probe_file.read_text().splitlines()]
+        if any(r.get('train_allowed') is not False for r in probes):
+            raise ValueError('Probe files must explicitly prohibit training')
+        rows.extend(probes)
     # Exclude first-use allocation from the comparison; alternate measured order.
     warm=tokenizer('Warmup',return_tensors='pt').to('cuda')
     with model.disable_adapter(),torch.inference_mode():
@@ -91,6 +97,8 @@ def main():
                     'heading_count':len(re.findall(r'^#{1,6}\s',text,re.M)),
                     'unsupported_numeric_candidates':unknown,'text':text,
                     'prompt_sha256':hashlib.sha256(prompt.encode()).hexdigest()}
+                if row.get('evaluation_criteria'):
+                    result['evaluation_criteria']=row['evaluation_criteria']
             except Exception as exc:
                 result={'record_id':row['record_id'],'mode':mode,'stage':row['stage'],'error':type(exc).__name__+': '+str(exc),
                         'seconds':time.monotonic()-started}
