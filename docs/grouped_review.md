@@ -20,9 +20,20 @@ Entity, period, scope, units and assumptions remain explicit in shared inputs.
 Identical search/read/dataset/calculation actions reuse successful results. Code,
 dataset IDs and assumptions are preserved in calculation cache keys. Failed
 calculations are not reused. Accepted judgements remain factor-specific.
-One outstanding batch avoids stale worker snapshots and duplicate in-flight
-requests. It trades GPU request concurrency for cross-factor reuse; latency must
-be measured, not inferred from fewer calls. Context size may reduce a batch.
+Two bounded service slots allow independent batches to overlap. Only the
+coordinator applies replies and changes shared state. Each input is rebuilt at
+dispatch from the latest shared results. Financial batches share one lane to
+avoid duplicate extraction; repayment and overall conclusions wait for their
+dependencies. Context size may reduce a batch. A concurrency of one retains the
+serial engine for comparison.
+
+While one HTTP request runs, the coordinator can retrieve evidence, validate
+another reply and execute its Python calculation. Existing run-scoped RAM caches
+reuse exact search/read/calculation results, and a bounded four-entry process
+cache reuses document indexes. These caches are in Codespaces RAM, not Colab VRAM.
+Local processing and request overlap, request occupancy, and server-reported
+prompt/completion tokens are recorded in performance.json. HTTP occupancy and
+local processing intervals are not hardware GPU/CPU utilization measurements.
 
 All unresolved work stays in the shared queue, including schema repairs and
 critical rechecks. There is no individual-call fallback. At most six queue rounds

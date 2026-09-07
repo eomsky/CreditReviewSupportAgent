@@ -32,31 +32,77 @@ class Measurements:
         self.started = monotonic()
         self.lock = Lock()
         self.records = []
+        self.inflight = {}
+        self.sequence = 0
+        self.usage = []
         self.first_report_seconds = None
 
     def record(self, kind, started, cached=False):
         with self.lock:
-            self.records.append({'kind': kind, 'seconds': monotonic()-started, 'cached': cached})
+            ended = monotonic()
+            self.records.append({'kind': kind, 'seconds': ended-started, 'cached': cached,
+                'started_seconds':started-self.started, 'ended_seconds':ended-self.started})
+
+    def begin(self, kind):
+        with self.lock:
+            self.sequence += 1
+            self.inflight[self.sequence] = (kind, monotonic())
+            return self.sequence
+
+    def finish(self, token):
+        with self.lock:
+            kind, started = self.inflight.pop(token)
+        self.record(kind, started)
+
+    def record_usage(self, usage):
+        with self.lock:
+            self.usage.append({k:usage.get(k) for k in
+                ('prompt_tokens','completion_tokens','total_tokens')})
 
     def snapshot(self):
         with self.lock:
-            return {'elapsed_seconds': monotonic()-self.started,
+            elapsed = monotonic()-self.started
+            intervals = [(r['started_seconds'],r['ended_seconds']) for r in self.records
+                         if r['kind'].startswith('llm_')]
+            intervals += [(started-self.started, elapsed) for kind, started in self.inflight.values()
+                          if kind.startswith('llm_')]
+            busy, right = 0.0, 0.0
+            merged = []
+            for start, end in sorted(intervals):
+                busy += max(0, end-max(right,start))
+                right = max(right,end)
+                if merged and start <= merged[-1][1]:
+                    merged[-1][1] = max(merged[-1][1], end)
+                else:
+                    merged.append([start, end])
+            local_overlap = sum(max(0, min(r['ended_seconds'], end)-max(r['started_seconds'], start))
+                for r in self.records if r['kind']=='local_apply' for start, end in merged)
+            return {'elapsed_seconds': elapsed,
                     'first_report_seconds': self.first_report_seconds,
                     'llm_calls': sum(r['kind'].startswith('llm_') for r in self.records),
                     'cache_hits': sum(r['cached'] for r in self.records),
+                    'llm_inflight':len(self.inflight),
+                    'request_busy_fraction':busy/elapsed if elapsed else 0,
+                    'mean_requests_inflight':sum(end-start for start,end in intervals)/elapsed if elapsed else 0,
+                    'request_gap_seconds':max(0,elapsed-busy),
+                    'local_apply_during_request_seconds':local_overlap,
+                    'utilization_note':'Client HTTP occupancy, including server queue/network; not GPU utilization',
+                    'token_usage':list(self.usage),
                     'operations': list(self.records)}
 
 
 class MeasuredClient:
     def __init__(self, client, metrics):
         self.client, self.metrics = client, metrics
+        if hasattr(client, 'set_usage_observer'):
+            client.set_usage_observer(metrics.record_usage)
 
     def _call(self, method, context):
-        started = monotonic()
+        token = self.metrics.begin('llm_'+method)
         try:
             return getattr(self.client, method)(context)
         finally:
-            self.metrics.record('llm_'+method, started)
+            self.metrics.finish(token)
 
     def set_deadline(self, deadline):
         if hasattr(self.client, 'set_deadline'):

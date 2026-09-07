@@ -112,6 +112,8 @@ class ColabClient:
                 raise RuntimeError("LLM request rejected: HTTP 400; incompatible request schema")
             response.raise_for_status()
             result = response.json()
+            if result.get('usage') and getattr(self, '_usage_observer', None):
+                self._usage_observer(result['usage'])
             choice = result['choices'][0]
             try:
                 if choice.get('finish_reason') not in (None, 'stop'):
@@ -124,6 +126,9 @@ class ColabClient:
                     {'finish_reason':choice.get('finish_reason'), 'usage':result.get('usage'),
                      'content':choice['message'].get('content')})
                 raise
+
+    def set_usage_observer(self, observer):
+        self._usage_observer = observer
 
     def next_action(self, context: dict) -> str:
         prompt = (Path(__file__).parent / "prompts" / "factor.md").read_text(encoding="utf-8")

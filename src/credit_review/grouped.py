@@ -175,7 +175,7 @@ def shared_context(worker, ids, memory):
     return context
 
 
-def analyse_grouped(h, targets, concurrency=2, metrics=None, rounds=6, time_budget=60, batch_size=6):
+def analyse_grouped_serial(h, targets, concurrency=1, metrics=None, rounds=6, time_budget=60, batch_size=6):
     """One shared state, bounded batches for ALL follow-ups, no individual fallback.
 
     A single outstanding LLM batch intentionally coalesces all ready requests and
@@ -324,3 +324,13 @@ def analyse_grouped(h, targets, concurrency=2, metrics=None, rounds=6, time_budg
         pool.shutdown(wait=False, cancel_futures=True)
         h.save()
         atomic_json(h.store.path/'performance.json', metrics.snapshot())
+
+
+def analyse_grouped(h, targets, concurrency=1, metrics=None, rounds=6, time_budget=60, batch_size=6):
+    if concurrency <= 1:
+        yield from analyse_grouped_serial(h, targets, metrics=metrics, rounds=rounds,
+                                         time_budget=time_budget, batch_size=batch_size)
+    else:
+        from .queued import analyse_queued
+        yield from analyse_queued(h, targets, metrics=metrics, rounds=rounds,
+                                  time_budget=time_budget, batch_size=batch_size, concurrency=concurrency)
