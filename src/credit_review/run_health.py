@@ -12,6 +12,10 @@ def service_failure(error):
 
 def explain_failure(error):
     value = str(error).lower()
+    if 'scikit-learn' in value or 'model checksum' in value:
+        return 'PDF 구조 분석 모델을 불러오지 못했습니다. 실행 환경과 모델 파일을 확인해야 합니다.'
+    if 'pdf extraction failed' in value:
+        return 'PDF 본문·표 구조 추출에 실패했습니다. 오류 기록을 확인해야 합니다.'
     if "active writer" in value:
         return "이 보고서가 다른 실행에서 작성 중입니다. 진행 중인 실행이 끝난 뒤 이어서 작성할 수 있습니다."
     if "530" in value:

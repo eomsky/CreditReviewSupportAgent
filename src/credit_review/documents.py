@@ -16,6 +16,22 @@ def from_json(data: bytes) -> list[Source]:
     return sources
 
 
+def from_pdf_isolated(path: Path, published_at: date, artifact_dir: Path) -> list[Source]:
+    """Load native PDF/model dependencies in a fresh interpreter after deployments."""
+    import subprocess
+    import sys
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix='credit-pdf-') as temporary:
+        result = Path(temporary) / 'sources.json'
+        completed = subprocess.run([
+            sys.executable, '-m', 'credit_review.pdf_worker', str(path.resolve()),
+            published_at.isoformat(), str(artifact_dir.resolve()), str(result),
+        ], capture_output=True, text=True, timeout=600)
+        if completed.returncode:
+            raise RuntimeError('PDF extraction failed: ' + completed.stderr[-6000:])
+        return from_json(result.read_bytes())
+
+
 def from_pdf(path: Path, published_at: date, artifact_dir: Path | None = None) -> list[Source]:
     """SPT v0.17 structural extraction, saved-model inference, hierarchical chunks."""
     from .vendor.spt017 import extract_document, PIPELINE_VERSION, MODEL_SHA256

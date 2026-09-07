@@ -15,7 +15,7 @@ import streamlit as st
 from credit_review.demo import DemoClient
 import credit_review.documents as documents_module
 importlib.reload(documents_module)
-from credit_review.documents import from_json, from_pdf
+from credit_review.documents import from_json, from_pdf_isolated as from_pdf
 from credit_review.vendor.spt017 import PIPELINE_VERSION
 from credit_review.harness import Harness
 import credit_review.llm as llm_module
