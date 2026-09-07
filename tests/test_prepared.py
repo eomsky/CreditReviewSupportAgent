@@ -98,3 +98,21 @@ def test_bundle_reference_arrays_cannot_repeat_until_token_limit():
             return '{"findings":[],"requests":[]}'
     review_bundle(Client(),{'sources':{'a':{},'b':{}},'datasets':{},'calculations':{},
                             'factors':{'F27':FACTORS['F27']}})
+
+
+def test_quality_pass_rejection_retains_draft_and_is_not_reported_complete(tmp_path):
+    h=make(tmp_path)
+    class Client:
+        def set_deadline(self,deadline): pass
+        def prepare_financial(self,context): return '{"datasets":[],"limitations":[]}'
+        def review_bundle(self,context):
+            return json.dumps({'findings':[{'factor_id':fid,'judgement':{
+                'summary':'Original supported limitation',
+                'evidence_ids':['nonexistent'] if fid=='F17' and context['review_pass'] else [],
+                'missing':['Sources not provided']}} for fid in context['factors']]})
+    h.client=Client()
+    list(analyse_prepared(h,list(FACTORS),time_budget=10,concurrency=2))
+    review=json.loads((h.store.path/'quality_review.json').read_text())
+    assert review['status']=='PARTIAL'
+    assert review['unresolved']==['F17']
+    assert h.state.factors['F17'].judgement.summary=='Original supported limitation'

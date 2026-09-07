@@ -243,6 +243,7 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
                     else:
                         reply=BundleReview.model_validate_json(raw)
                         seen=set()
+                        accepted=[]; validation_errors={}
                         for finding in reply.findings:
                             fid=finding.factor_id
                             if fid not in job['ids'] or fid in seen: raise ValueError('Duplicate or unexpected bundle factor')
@@ -251,9 +252,11 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
                                 h.apply(fid,Action(action='conclude',reason='Evidence-based bundle judgement',judgement=finding.judgement),output)
                                 h.state.factors[fid].error=None
                                 h.state.factors[fid].steps+=1
+                                accepted.append(fid)
                                 if metrics.first_report_seconds is None: metrics.first_report_seconds=monotonic()-metrics.started
                                 yield event('state',fid,h.state.factors[fid].model_copy(deep=True))
                             except ValueError as error:
+                                validation_errors[fid]=str(error)
                                 h.state.factors[fid].error=str(error)
                                 h.store.event(action='bundle_validation',factor_id=fid,error=str(error))
                         if reply.requests and not job['final']:
@@ -267,7 +270,12 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
                                     except ValueError: pass
                             if extra: followups.append((job['ids'],extra))
                         if job['kind']=='quality':
-                            atomic_json(h.store.path/'quality_review.json',{'status':'COMPLETED','factors':job['ids']})
+                            missing=set(job['ids'])-set(accepted)
+                            atomic_json(h.store.path/'quality_review.json',{
+                                'status':'COMPLETED' if not missing else 'PARTIAL' if accepted else 'FAILED',
+                                'factors':job['ids'],'accepted':accepted,'unresolved':sorted(missing),
+                                'errors':validation_errors,
+                                'verification':'Reference/schema review completed only; expert semantic quality is not certified'})
                 except Exception as error:
                     h.store.event(action='prepared_failure',stage=job['kind'],factors=job['ids'],error=str(error))
                     for fid in job['ids']:
