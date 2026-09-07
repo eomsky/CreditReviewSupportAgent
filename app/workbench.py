@@ -11,17 +11,22 @@ from pathlib import Path
 import streamlit as st
 
 from credit_review.demo import DemoClient
+import credit_review.documents as documents_module
+importlib.reload(documents_module)
 from credit_review.documents import from_json, from_pdf
+from credit_review.vendor.spt017 import PIPELINE_VERSION
 from credit_review.harness import Harness
 import credit_review.llm as llm_module
 import credit_review.models as models_module
 import credit_review.harness as harness_module
 import credit_review.reporting as reporting_module
+import credit_review.retrieval as retrieval_module
 
 # Streamlit preserves imported modules between reruns. Refresh the small,
 # stateless client so a deployed connection fix applies without losing uploads.
 importlib.reload(models_module)
 ColabClient = importlib.reload(llm_module).ColabClient
+importlib.reload(retrieval_module)
 Harness = importlib.reload(harness_module).Harness
 importlib.reload(reporting_module)
 import credit_review.parallel as parallel_module
@@ -144,12 +149,12 @@ if start or resume:
                     folder.mkdir(parents=True, exist_ok=True)
                     path = folder / (hashlib.sha256(file.getvalue()).hexdigest() + ".pdf")
                     path.write_bytes(file.getvalue())
-                    cache_path = folder / (path.stem + f"_{published}_extract_v1.json")
+                    cache_path = folder / (path.stem + f"_{published}_{PIPELINE_VERSION}.json")
                     with st.spinner(f"{file.name}의 본문과 표를 준비하고 있습니다."):
                         if cache_path.exists():
                             extracted = from_json(cache_path.read_bytes())
                         else:
-                            extracted = from_pdf(path, published)
+                            extracted = from_pdf(path, published, folder / (path.stem + "_" + PIPELINE_VERSION))
                             atomic_json(cache_path, {'sources': [s.model_dump(mode='json') for s in extracted]})
                     sources.extend(extracted)
             if not sources or not any(s.text.strip() and s.published_at <= cutoff for s in sources):

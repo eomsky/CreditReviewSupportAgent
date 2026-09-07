@@ -45,6 +45,16 @@ class Harness:
         rows = self.retriever.read(focused)
         # Avoid repeating full parent pages beside each paragraph/table. Parents remain readable by ID.
         sources = [{k: v for k, v in row.items() if k != "metadata"} for row in rows if row["id"] in focused]
+        for source in sources:
+            raw = next(row for row in rows if row['id'] == source['id'])
+            meta = raw.get('metadata', {})
+            if meta.get('structured'):
+                payload = meta['structured']
+                source['structure'] = {
+                    'document_id': source['document_id'], 'source': payload['source'],
+                    'section_path': payload.get('section_path', []),
+                    'table_structure': meta.get('table_structure'),
+                    'columns': [col for el in payload['elements'] for col in el.get('hierarchy', {}).get('columns', [])]}
         return {"factor": FACTORS[fid], "state": {**factor.model_dump(mode="json", exclude={"failed_response"}),
                     "failed_response": factor.failed_response[:2000] if factor.failed_response else None},
                 "review_date": str(self.state.review_date), "mode": self.state.mode,

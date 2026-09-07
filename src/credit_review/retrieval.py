@@ -7,7 +7,7 @@ from .models import Source
 class Retriever:
     def __init__(self, sources: list[Source], cutoff: date, embedding_model: str = ""):
         self.sources = {s.id: s for s in sources if s.published_at <= cutoff}
-        self.rows = list(self.sources.values())
+        self.rows = [s for s in self.sources.values() if s.metadata.get("searchable", True)]
         self.model = None
         self.dense = None
         self.vectorizer = TfidfVectorizer(analyzer="char", ngram_range=(2, 4))

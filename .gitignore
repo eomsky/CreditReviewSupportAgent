@@ -6,3 +6,5 @@ __pycache__/
 workspace/
 .streamlit/secrets.toml
 .pytest_*/
+
+.venv_spt/

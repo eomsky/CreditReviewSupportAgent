@@ -1,0 +1,9 @@
+{
+  "upstream": "SemanticPromptTransfer v0.17",
+  "source_url": "https://drive.google.com/file/d/11YA7CZ0qF8QQg89y6kxF85TWs9n1CRV4/view",
+  "bundle_sha256": "1c82c9f5e048eb7a4aa09fd33227316c4649c2ede89d12e5919b0646d8c77e96",
+  "notebook_sha256": "77f90a42d7e1c0983814796ae724ae07e5e6a6db2d2494d73732ff71ed2eeb85",
+  "adaptation": "Extracted PDFExtractor and DocumentBuilder definitions. Removed training methods and notebook execution/Drive setup. v015/v016/v017 rules and ChunkBuilder copied unchanged.",
+  "model_sha256": "76dd6405b6376a69ea6dcc3904271dd692b3752f29fd25806a8dde5b62d6f654",
+  "model_url": "https://drive.google.com/file/d/1AIngsxA7OPLYo1JQpU6KR0uEqi0EbVr9/view"
+}

@@ -16,29 +16,49 @@ def from_json(data: bytes) -> list[Source]:
     return sources
 
 
-def from_pdf(path: Path, published_at: date) -> list[Source]:
-    """Baseline adapter, explicitly NOT a full merged-table/OCR implementation."""
-    import pymupdf
-    doc_id = hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+def from_pdf(path: Path, published_at: date, artifact_dir: Path | None = None) -> list[Source]:
+    """SPT v0.17 structural extraction, saved-model inference, hierarchical chunks."""
+    from .vendor.spt017 import extract_document, PIPELINE_VERSION, MODEL_SHA256
+    from .store import atomic_json
+    master, chunks = extract_document(path)
+    if artifact_dir is not None:
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        atomic_json(artifact_dir / "MASTER.json", master)
+        atomic_json(artifact_dir / "chunks.json", {'chunks': [c.to_dict() for c in chunks]})
+        atomic_json(artifact_dir / "manifest.json", {
+            'pipeline': PIPELINE_VERSION, 'model_sha256': MODEL_SHA256,
+            'pdf_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+            'published_at': str(published_at), 'pages': master['raw_document']['page_count'],
+            'physical_tables': len(master['raw_document']['physical_tables']),
+            'chunks': len(chunks), 'ocr': False})
+    return sources_from_spt(master, chunks, hashlib.sha256(path.read_bytes()).hexdigest()[:16], published_at)
+
+
+def sources_from_spt(master, chunks, document_id: str, published_at: date) -> list[Source]:
+    """Keep original structural IDs in a document scope; global evidence IDs cannot collide."""
+    from .vendor.spt017 import PIPELINE_VERSION
     result = []
-    with pymupdf.open(path) as pdf:
-        for page_no, page in enumerate(pdf, 1):
-            parent = f"{doc_id}_p{page_no}"
-            text = page.get_text("text")
-            result.append(Source(id=parent, document_id=doc_id, page=page_no, text=text,
-                                 kind="page", published_at=published_at,
-                                 metadata={"filename": path.name, "extractor": "pymupdf_baseline", "ocr": False}))
-            for i, block in enumerate(page.get_text("blocks")):
-                if block[6] == 0 and block[4].strip():
-                    result.append(Source(id=f"{parent}_b{i}", document_id=doc_id, page=page_no,
-                        parent_id=parent, kind="paragraph", text=block[4], published_at=published_at,
-                        metadata={"bbox": list(block[:4])}))
-            for i, table in enumerate(page.find_tables().tables):
-                rows = table.extract()
-                result.append(Source(id=f"{parent}_t{i}", document_id=doc_id, page=page_no,
-                    parent_id=parent, kind="table", text=json.dumps(rows, ensure_ascii=False),
-                    published_at=published_at, metadata={"rows": rows, "bbox": list(table.bbox),
-                    "warning": "Headers, units and cross-page continuity require semantic validation"}))
+    for page in master['raw_document']['pages']:
+        result.append(Source(id=f"{document_id}_spt017_p{page['page']}", document_id=document_id,
+            page=page['page'], kind='page', published_at=published_at,
+            text='\n'.join(b['text'] for b in page['blocks']),
+            metadata={'extractor': PIPELINE_VERSION, 'searchable': False, 'ocr': False,
+                      'page_size': [page['width'], page['height']]}))
+    tables = {t['table_id']: t for t in master['semantic_elements']['tables']}
+    for chunk in chunks:
+        structured = json.loads(chunk.document)
+        meta = dict(chunk.metadata)
+        meta.update(extractor=PIPELINE_VERSION, structured=structured, ocr=False,
+                    source_document_id=document_id, embedding_text=chunk.embedding_text)
+        if meta.get('physical_table_id'):
+            table = tables[meta['physical_table_id']]
+            meta['table_structure'] = {k: table.get(k) for k in (
+                'header_depth', 'stub_column_count', 'status', 'inherited_header',
+                'merge_evidence', 'logical_table_id')}
+        page = min(meta['pages'])
+        result.append(Source(id=f"{document_id}_spt017_{chunk.chunk_id}", document_id=document_id,
+            page=page, text=chunk.embedding_text, kind='table' if meta['content_type']=='table' else 'paragraph',
+            parent_id=f"{document_id}_spt017_p{page}", published_at=published_at, metadata=meta))
     return result
 
 
