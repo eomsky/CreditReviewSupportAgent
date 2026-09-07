@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from time import monotonic
 from pathlib import Path
 import httpx
 from .models import Action, BatchActions
@@ -62,6 +63,15 @@ def report_deltas(lines):
 
 
 class ColabClient:
+    def set_deadline(self, deadline):
+        self.deadline = deadline
+
+    def request_timeout(self, default=180):
+        remaining = getattr(self, 'deadline', monotonic() + default) - monotonic()
+        if remaining <= 0:
+            raise TimeoutError('Report execution time budget exhausted')
+        return min(default, remaining)
+
     def __init__(self):
         config_path = Path(os.environ.get("CREDIT_WORKSPACE", "workspace")) / "llm_connection.json"
         config = json.loads(config_path.read_text(encoding="utf-8")) if config_path.exists() else {}
@@ -86,7 +96,7 @@ class ColabClient:
             raise ValueError("Context exceeds configured budget; narrow evidence before retrying")
         key = self.key
         headers = {"Authorization": f"Bearer {key}"} if key else {}
-        with httpx.Client(timeout=180) as client:
+        with httpx.Client(timeout=self.request_timeout()) as client:
             response = client.post(self.base_url + "/chat/completions", headers=headers,
                 json={"model": self.model, "temperature": 0.1, "max_tokens": 6000,
                       "structured_outputs": {**({'json':schema} if schema else {'json_object':True}),
@@ -204,7 +214,7 @@ class ColabClient:
         serialized = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
         if len(serialized) > 120000:
             raise ValueError("Report context exceeds budget")
-        with httpx.Client(timeout=180) as client:
+        with httpx.Client(timeout=self.request_timeout()) as client:
             with client.stream("POST", self.base_url + "/chat/completions",
                 headers={"Authorization": f"Bearer {self.key}"}, json={
                     "model": self.model, "stream": True, "temperature": 0.1, "max_tokens": 2500,

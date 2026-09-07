@@ -11,7 +11,11 @@ def service_failure(error):
 
 
 def explain_failure(error):
+    if type(error).__name__ == 'ReviewStopped':
+        return str(error)
     value = str(error).lower()
+    if 'execution time budget exhausted' in value:
+        return '보고서 실행시간 한도에 도달하여 중단했습니다. 확보한 결과는 보존했습니다.'
     if 'scikit-learn' in value or 'model checksum' in value:
         return 'PDF 구조 분석 모델을 불러오지 못했습니다. 실행 환경과 모델 파일을 확인해야 합니다.'
     if 'pdf extraction failed' in value:

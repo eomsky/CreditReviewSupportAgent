@@ -144,7 +144,7 @@ def test_conflicting_group_judgement_is_reserved_for_deep_review(tmp_path):
     assert any(a['stage']=='group_provisional_judgement' for a in h.store.artifacts())
 
 
-def test_unresolved_group_uses_adaptive_search_instead_of_forced_conclusion(tmp_path):
+def test_invalid_group_stops_without_individual_fallback_or_forced_conclusion(tmp_path):
     class Client:
         individual = 0
         def next_actions(self, context):
@@ -155,8 +155,10 @@ def test_unresolved_group_uses_adaptive_search_instead_of_forced_conclusion(tmp_
                 'summary':'자료 범위 제한', 'evidence_ids':[], 'missing':['unknown']}})
     client = Client()
     h = Harness.create(tmp_path, 'fallback', date(2026,4,7), demo_sources(), client)
-    list(analyse_grouped(h, ['F01']))
-    assert client.individual == 1 and h.state.factors['F01'].judgement
+    from credit_review.grouped import ReviewStopped
+    with pytest.raises(ReviewStopped):
+        list(analyse_grouped(h, ['F01']))
+    assert client.individual == 0 and h.state.factors['F01'].judgement is None
 
 
 def test_index_reuse_does_not_reuse_changed_content_or_future_evidence():

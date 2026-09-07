@@ -1,6 +1,11 @@
 """Run the full production analysis/synthesis path on previously prepared sources."""
 import argparse
 import json
+import os
+import signal
+import subprocess
+import sys
+import uuid
 from datetime import date
 from pathlib import Path
 from time import monotonic
@@ -18,7 +23,11 @@ from credit_review.store import atomic_json
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('source_run', type=Path)
+    parser.add_argument('--hard-timeout', type=float, default=60)
+    parser.add_argument('--worker', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if not args.worker:
+        return supervise(args)
     state = json.loads((args.source_run/'state.json').read_text())
     artifact = next(args.source_run.glob('artifacts/sources_*.json'))
     sources = from_json(json.dumps(json.loads(artifact.read_text())['payload']).encode())
@@ -34,8 +43,9 @@ def main():
     stage, error, first_token = 'analysis', None, None
     try:
         with run_lease(h):
-            for event in analyse_grouped(h, list(FACTORS), concurrency=2, metrics=metrics):
-                if monotonic()-last >= 30:
+            for event in analyse_grouped(h, list(FACTORS), concurrency=2, metrics=metrics,
+                                        time_budget=args.hard_timeout):
+                if monotonic()-last >= 10:
                     print(json.dumps({'seconds':round(monotonic()-metrics.started,1),
                         'judgements':sum(bool(f.judgement) for f in h.state.factors.values()),
                         'calls':metrics.snapshot()['llm_calls'], 'active':event['active']}), flush=True)
@@ -65,6 +75,54 @@ def main():
         atomic_json(h.store.path/'benchmark_summary.json', summary)
         (h.store.path/'report.md').write_text(report_markdown(report_document(h)), encoding='utf-8')
         print('RESULT', json.dumps(summary), flush=True)
+
+
+def supervise(args):
+    """A process boundary also stops a stuck HTTP call or index preparation."""
+    root = Path('workspace/benchmarks')
+    root.mkdir(parents=True, exist_ok=True)
+    name = 'watch_' + uuid.uuid4().hex
+    log = root/(name+'.log')
+    started = monotonic()
+    with log.open('w', encoding='utf-8') as out:
+        process = subprocess.Popen([sys.executable, __file__, str(args.source_run),
+            '--worker', '--hard-timeout', str(args.hard_timeout)], stdout=out, stderr=subprocess.STDOUT,
+            start_new_session=os.name != 'nt')
+        print('WATCHDOG', log, 'limit', args.hard_timeout, flush=True)
+        stopped = False
+        try:
+            process.wait(timeout=args.hard_timeout)
+        except subprocess.TimeoutExpired:
+            stopped = True
+            if os.name == 'nt':
+                process.kill()
+            else:
+                os.killpg(process.pid, signal.SIGKILL)
+            process.wait(timeout=5)
+    text = log.read_text(encoding='utf-8')
+    print(text, flush=True)
+    run_line = next((line for line in text.splitlines() if line.startswith('BENCHMARK_RUN ')), None)
+    result = {'status':'ABORTED_TIME_BUDGET' if stopped else 'PROCESS_FINISHED',
+        'elapsed_seconds':monotonic()-started, 'limit_seconds':args.hard_timeout,
+        'exit_code':process.returncode, 'process_stopped':process.poll() is not None,
+        'log':str(log), 'report_completed':False}
+    if run_line:
+        run = Path(run_line.removeprefix('BENCHMARK_RUN '))
+        result['run'] = str(run)
+        if (run/'state.json').exists():
+            state = json.loads((run/'state.json').read_text())
+            result['judgements'] = sum(bool(f.get('judgement')) for f in state['factors'].values())
+        if (run/'performance.json').exists():
+            perf = json.loads((run/'performance.json').read_text())
+            result['llm_calls_completed'] = perf['llm_calls']
+        if (run/'benchmark_summary.json').exists():
+            summary = json.loads((run/'benchmark_summary.json').read_text())
+            result['report_completed'] = summary['stage'] == 'finished' and summary['judgements'] == len(FACTORS)
+        if stopped:
+            atomic_json(run/'benchmark_summary.json', result)
+            (run/'.run.lock').unlink(missing_ok=True)  # only after worker exit was confirmed
+    atomic_json(root/(name+'.json'), result)
+    print('WATCHDOG_RESULT', json.dumps(result), flush=True)
 
 
 if __name__ == '__main__':

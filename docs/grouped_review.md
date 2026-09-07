@@ -10,19 +10,29 @@ re-extracting its geometry. Previous case-scoped v0.17 caches are adopted. Lexic
 and configured dense indexes are reused by exact text/model keys in a bounded
 process cache. Model or text changes do not reuse the same index.
 
-Seven related factor groups receive deduplicated sources, datasets, calculations
-and prior findings. Each LLM response may take one action per factor. A dataset is
-validated and shared once inside a group; Python executes proposed calculations,
-and subsequent LLM responses interpret the returned results. Reference validation
-is unchanged. Candidate evidence is not semantic verification.
+The central queue gathers up to six ready factors per request, including every
+follow-up. It searches run-local prior requests/replies, source lookups, validated
+datasets and executed calculations before each call. A lightweight lexical index
+uses names/questions to select candidates; it does not make an extra LLM call.
+Candidate evidence and previous LLM responses are not semantic verification.
+Entity, period, scope, units and assumptions remain explicit in shared inputs.
 
-Two groups can run simultaneously, with at most three factors per response.
-The fast pass requests concise structured reasoning summaries with Gemma's extended
-thinking disabled; unresolved work retains the original adaptive reasoning path.
-vLLM compact JSON decoding prevents whitespace-only output loops.
-There are at most four grouped rounds before
-unresolved work returns to the existing adaptive search/reframe/calculation loop.
-Repayment capacity (F24) and overall risk (F30) follow prerequisite analyses.
+Identical search/read/dataset/calculation actions reuse successful results. Code,
+dataset IDs and assumptions are preserved in calculation cache keys. Failed
+calculations are not reused. Accepted judgements remain factor-specific.
+One outstanding batch avoids stale worker snapshots and duplicate in-flight
+requests. It trades GPU request concurrency for cross-factor reuse; latency must
+be measured, not inferred from fewer calls. Context size may reduce a batch.
+
+All unresolved work stays in the shared queue, including schema repairs and
+critical rechecks. There is no individual-call fallback. At most six queue rounds
+are allowed. Repeated identical requests or two rounds without new evidence,
+datasets, calculations or judgements stop early. A material gap/conflict receives
+one recheck; any retained judgement remains qualified, never marked verified.
+The default execution budget is 60 seconds from the shared measurements start.
+The HTTP client receives that deadline through synthesis and final streaming.
+The standalone full benchmark also has a 60-second process watchdog, covering
+preparation and stuck calls, and preserves saved progress before reporting failure.
 Completed factors are skipped on resume, and each accepted judgement immediately
 updates the report. Final narrative retains the existing SSE streaming path.
 

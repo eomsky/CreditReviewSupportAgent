@@ -1,12 +1,11 @@
-"""Bounded shared-evidence rounds, followed by adaptive review of unresolved factors."""
+"""Central work queue: shared-history lookup before every bounded batch."""
 import json
 from concurrent.futures import ThreadPoolExecutor
-from queue import Queue, Empty
-from threading import Event
 from time import monotonic
 
 from .models import BatchActions, Action
-from .parallel import WorkerHarness, CachedTools, Measurements, analyse_factors
+from .parallel import WorkerHarness, CachedTools, Measurements
+from .shared_work import SharedWork, signature
 from .store import atomic_json
 from .run_health import service_failure
 from .registry import FACTORS
@@ -20,7 +19,11 @@ def group_context(worker, ids):
     sources, datasets, calculations, factors, related, reusable = {}, {}, {}, {}, {}, {}
     for fid in ids:
         context = worker.context(fid)
-        for source in context.pop('sources'):
+        for source in context.pop('sources')[:3]:
+            if len(source['text']) > 2400:
+                source['text'] = source['text'][:2400]
+                source['excerpt_only'] = True
+                source['omission_note'] = 'Focused excerpt; use read/search to inspect omitted content before concluding.'
             sources[source['id']] = source
         datasets.update(context.pop('datasets'))
         calculations.update(context.pop('calculations'))
@@ -63,7 +66,12 @@ def apply_group_reply(worker, ids, raw, parent, on_status=None):
         if action.inquiry and not f.inquiry and action.action != 'plan':
             worker.apply(fid, Action(action='plan', reason=action.reason, inquiry=action.inquiry), parent)
         f.steps += 1
-        worker.apply(fid, action, parent)
+        memory = getattr(worker, 'shared_work', None)
+        result = memory.reuse_exact(fid, action, parent) if memory else None
+        if not result:
+            result = worker.apply(fid, action, parent)
+        if memory:
+            memory.record(fid, action, parent, result)
         f.error = None
         f.failed_response = None
         if action.action == 'conclude' and (action.judgement.conflicts or
@@ -78,12 +86,12 @@ def apply_group_reply(worker, ids, raw, parent, on_status=None):
         worker.store.event(action=action.action, factor_id=fid, grouped=True)
         # Broadcast only validated datasets and executed calculations, never predicted values.
         if action.action == 'dataset':
-            aid = f.dataset_ids[-1]
+            aid = result
             for other in ids:
                 if other != fid and not worker.state.factors[other].judgement:
                     worker.apply(other, Action(action='reuse', reason='Validated group dataset', reuse_dataset_ids=[aid]), parent)
         if action.action == 'calculate':
-            aid = f.calculation_ids[-1]
+            aid = result
             for other in ids:
                 target = worker.state.factors[other]
                 if not target.judgement and aid not in target.calculation_ids:
@@ -97,6 +105,9 @@ def apply_group_independently(worker, ids, raw, parent, on_status=None):
     fids = [item['factor_id'] for item in items]
     if not items or len(set(fids)) != len(fids) or not set(fids).issubset(ids):
         raise ValueError('Unexpected or duplicate factor in group response')
+    # Shared source/data/calculation dependencies are applied before conclusions.
+    order = {'plan':0, 'reframe':0, 'search':1, 'read':1, 'reuse':2, 'dataset':2, 'calculate':3, 'conclude':4}
+    items.sort(key=lambda item: order.get(item.get('action', {}).get('action'), 9))
     for item in items:
         fid = item['factor_id']
         try:
@@ -108,105 +119,183 @@ def apply_group_independently(worker, ids, raw, parent, on_status=None):
             worker.store.event(action='group_item_repair', factor_id=fid, error=f.error)
 
 
-def analyse_grouped(h, targets, concurrency=2, metrics=None, rounds=4):
+class ReviewStopped(RuntimeError):
+    pass
+
+
+def shared_context(worker, ids, memory):
+    """Search prior work without an LLM; expose candidates with provenance labels."""
+    memory.refresh()
+    matches = {}
+    for fid in ids:
+        f = worker.state.factors[fid]
+        query = FACTORS[fid]['name'] + ' ' + ' '.join(FACTORS[fid]['required_evidence'])
+        if f.inquiry:
+            query += ' ' + f.inquiry.question
+        found = memory.search(query)
+        matches[fid] = found
+        # Make relevant validated assets available, not assertions of applicability.
+        for hit in found:
+            aid = hit.get('artifact_id')
+            if hit.get('kind') == 'dataset':
+                worker.apply(fid, Action(action='reuse', reason='Shared history candidate; verify scope before use',
+                    reuse_dataset_ids=[aid]), 'shared_history')
+            elif hit.get('kind') == 'calculation' and hit['verification'] == 'EXECUTED':
+                payload = worker.store.get(aid)['payload']
+                worker.apply(fid, Action(action='reuse', reason='Shared calculation inputs',
+                    reuse_dataset_ids=payload['plan']['dataset_ids']), 'shared_history')
+                if aid not in f.calculation_ids:
+                    f.calculation_ids.append(aid)
+            # Lookup results are candidate sources, never automatically fulfilled evidence.
+            if hit.get('evidence_ids'):
+                rows = worker.retriever.read(hit['evidence_ids'])
+                f.evidence_ids = sorted(set(f.evidence_ids) | {r['id'] for r in rows})
+                f.recent_source_ids = list(dict.fromkeys(hit['evidence_ids'][:2] + f.recent_source_ids))[:6]
+        worker.store.event(action='shared_history_search', factor_id=fid, hits=len(found))
+    context = group_context(worker, ids)
+    context['prior_work'] = matches
+    context['reuse_policy'] = ('Search completed prior_work before requesting more work. '
+        'Check entity, period, scope, units, assumptions. Prior LLM text is not verified truth. '
+        'Only request unmet needs. Emit one shared tool request for duplicate needs across factors.')
+    if len(json.dumps(context, ensure_ascii=False)) > 64000:
+        raise ValueError('Group context too large')
+    return context
+
+
+def analyse_grouped(h, targets, concurrency=2, metrics=None, rounds=6, time_budget=60, batch_size=6):
+    """One shared state, bounded batches for ALL follow-ups, no individual fallback.
+
+    A single outstanding LLM batch intentionally coalesces all ready requests and
+    removes stale snapshot races. Tools retain run-local single-flight caching.
+    """
     metrics = metrics or Measurements()
+    deadline = metrics.started + time_budget
+    if hasattr(h.client, 'set_deadline'):
+        h.client.set_deadline(deadline)
     tools = CachedTools(h.retriever, h.executor, metrics)
-    queue, stop = Queue(), Event()
-    groups = [tuple(fid for fid in group if fid in targets and not h.state.factors[fid].judgement) for group in GROUPS]
-    groups = [group for group in groups if group]
-    active = set()
+    worker = WorkerHarness(h.store, h.state, tools, h.client, tools)
+    memory = worker.shared_work = SharedWork(worker)
+    pending = [fid for fid in targets if not h.state.factors[fid].judgement]
+    attempted, repeated, rechecked = {}, {}, set()
+    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='credit-batch')
+    future = None
 
-    def work(ids, snapshot):
-        worker = WorkerHarness(h.store, snapshot, tools, h.client, tools)
-        try:
-            for fid in ids:
-                worker.prepare_evidence(fid)
-            for _ in range(rounds):
-                pending = [fid for fid in ids if not worker.state.factors[fid].judgement
-                           and worker.state.factors[fid].status != 'GROUP_DEEP_REVIEW']
-                if not pending or stop.is_set():
-                    break
-                for fid in pending:
-                    queue.put(('status', fid, {'action': 'review', 'question': '공통 원문·자료를 활용한 요인 분석'}))
-                pending = pending[:3]
-                # Dataset payloads contain per-cell provenance and can exceed a
-                # response budget. Keep quantitative steps in one-factor requests.
-                if any('dataset' in worker.context(fid)['available_actions'] for fid in pending):
-                    pending = pending[:1]
-                while True:
-                    try:
-                        context = group_context(worker, pending)
-                        break
-                    except ValueError:
-                        if len(pending) == 1:
-                            raise
-                        pending = pending[:-1]
-                request = worker.store.put('group_input', context)
-                raw = worker.client.next_actions(context)
-                response = worker.store.put('group_output', {'raw': raw}, [request])
-                apply_group_independently(worker, pending, raw, response,
-                    lambda fid, action, question: queue.put(('status', fid, {'action':action, 'question':question})))
-                for fid in ids:
-                    queue.put(('state', fid, worker.state.factors[fid].model_copy(deep=True)))
-        except Exception as error:
-            worker.store.event(action='group_fallback', factors=list(ids), error=str(error))
-            if service_failure(error):
-                stop.set()
-                queue.put(('failure', ids[0], str(error)))
-        finally:
-            for fid in ids:
-                queue.put(('state', fid, worker.state.factors[fid].model_copy(deep=True)))
-                queue.put(('done', fid, None))
+    def progress():
+        # Planning alone is not evidence of useful progress.
+        return tuple((fid, tuple(f.evidence_ids), tuple(f.dataset_ids), tuple(f.calculation_ids),
+            f.judgement.model_dump_json() if f.judgement else None)
+            for fid, f in h.state.factors.items() if fid in targets)
 
-    failure = None
-    pool = ThreadPoolExecutor(max_workers=max(1, min(2, concurrency)), thread_name_prefix='credit-group')
-    futures = []
+    def event(kind, fid=None, value=None, active=()):
+        return {'kind':kind, 'factor_id':fid, 'value':value, 'active':list(active),
+            'finished':sum(bool(h.state.factors[f].judgement) for f in targets),
+            'total':len(targets), 'metrics':metrics.snapshot()}
+
     try:
-        waiting = list(groups)
-        running = {}
-        while waiting or running:
-            while waiting and len(running) < max(1, min(2, concurrency)) and not stop.is_set():
-                group = waiting.pop(0)
-                future = pool.submit(work, group, h.state.model_copy(deep=True))
-                futures.append(future)
-                running[group] = set(group)
-                active.update(group)
-            if not running:
-                break
-            try:
-                kind, fid, value = queue.get(timeout=0.5)
-            except Empty:
-                yield {'kind':'heartbeat', 'active':list(active), 'metrics':metrics.snapshot()}
-                continue
-            if kind == 'state':
-                h.state.factors[fid] = value
+        stale_rounds = 0
+        for turn in range(rounds):
+            if not pending:
+                return
+            before = progress()
+            # Fair queue: each pending factor gets one opportunity before any repeats.
+            waiting = list(pending)
+            while waiting:
+                if monotonic() >= deadline:
+                    raise ReviewStopped('실행시간 한도에 도달하여 중단했습니다. 확보한 결과는 보존했습니다.')
+                ready = [fid for fid in waiting if fid not in ('F24', 'F30') or
+                    all(dep in attempted or h.state.factors[dep].judgement for dep in
+                        ([f'F{i:02}' for i in range(13,24)] if fid == 'F24' else targets)
+                        if dep in targets and dep != fid)]
+                if not ready:
+                    ready = waiting[:1]
+                ids = ready[:max(1, min(6, batch_size))]
+                for fid in ids:
+                    worker.prepare_evidence(fid)
+                while ids:
+                    try:
+                        context = shared_context(worker, ids, memory)
+                        break
+                    except ValueError as error:
+                        if len(ids) == 1:
+                            raise ReviewStopped('공통 근거가 입력 한도를 초과했습니다. 결과를 보존하고 중단했습니다.') from error
+                        ids = ids[:-1]
+                for fid in ids:
+                    waiting.remove(fid)
+                    attempted[fid] = attempted.get(fid, 0) + 1
+                parent = h.store.put('group_input', context)
+                for fid in ids:
+                    yield event('status', fid, {'action':'review',
+                        'question':'다른 파트의 기존 결과 확인 후 부족한 판단을 함께 검토'}, ids)
+                future = pool.submit(worker.client.next_actions, context)
+                while not future.done():
+                    # A bounded wait keeps UI heartbeats alive during slow inference.
+                    from concurrent.futures import TimeoutError as FutureTimeout
+                    try:
+                        future.result(timeout=min(0.5, max(0.001, deadline-monotonic())))
+                    except FutureTimeout:
+                        pass
+                    if monotonic() >= deadline:
+                        raise ReviewStopped('LLM 응답 대기시간 한도로 중단했습니다. 확보한 결과는 보존했습니다.')
+                    yield event('heartbeat', active=ids)
+                try:
+                    raw = future.result()
+                    response = h.store.put('group_output', {'raw':raw}, [parent])
+                    items = json.loads(raw)['actions']
+                    reply_ids = [item['factor_id'] for item in items]
+                    if not items or len(set(reply_ids)) != len(reply_ids) or not set(reply_ids).issubset(ids):
+                        raise ValueError('Unexpected or duplicate factor in group response')
+                    # Block identical requests by the same factor; different factors reuse results.
+                    retained = []
+                    for item in items:
+                        fid = item['factor_id']
+                        try:
+                            action = Action.model_validate(item['action'])
+                        except ValueError:
+                            retained.append(item)
+                            continue
+                        key = (fid, signature(action))
+                        repeated[key] = repeated.get(key, 0) + 1
+                        if repeated[key] > 2:
+                            raise ReviewStopped('새로운 근거 없이 동일 요청이 반복되어 조기 중단했습니다.')
+                        retained.append(item)
+                    apply_group_independently(worker, ids, json.dumps({'actions':retained}), response)
+                    for fid in ids:
+                        f = h.state.factors[fid]
+                        if f.status == 'GROUP_DEEP_REVIEW':
+                            if fid in rechecked:
+                                # Keep the qualified finding after one explicit recheck.
+                                provisional = next(a for a in reversed(h.store.artifacts())
+                                    if a['stage']=='group_provisional_judgement' and a['payload']['factor_id']==fid)
+                                from .models import Judgement
+                                f.judgement = Judgement.model_validate(provisional['payload']['judgement'])
+                                f.status = 'CONFLICT' if f.judgement.conflicts else 'PARTIALLY_FULFILLED'
+                            else:
+                                rechecked.add(fid)
+                except ReviewStopped:
+                    raise
+                except Exception as error:
+                    h.store.event(action='batch_repair', factors=ids, error=str(error))
+                    if service_failure(error):
+                        raise
+                    for fid in ids:
+                        h.state.factors[fid].error = str(error)[:1000]
                 h.state.report_id = None
                 h.save()
-                if value.judgement and metrics.first_report_seconds is None:
-                    metrics.first_report_seconds = monotonic()-metrics.started
-            elif kind == 'done':
-                active.discard(fid)
-                for group in list(running):
-                    running[group].discard(fid)
-                    if not running[group]:
-                        del running[group]
-            elif kind == 'failure':
-                failure = value
-            atomic_json(h.store.path/'performance.json', metrics.snapshot())
-            yield {'kind':kind, 'factor_id':fid, 'value':value, 'active':list(active),
-                   'finished':sum(bool(h.state.factors[f].judgement) for f in targets),
-                   'total':len(targets), 'metrics':metrics.snapshot()}
-        if failure:
-            raise RuntimeError(failure)
+                for fid in ids:
+                    f = h.state.factors[fid]
+                    if f.judgement and metrics.first_report_seconds is None:
+                        metrics.first_report_seconds = monotonic()-metrics.started
+                    yield event('state', fid, f.model_copy(deep=True), ids)
+                    yield event('done', fid, active=[other for other in ids if other != fid])
+                atomic_json(h.store.path/'performance.json', metrics.snapshot())
+            pending = [fid for fid in pending if not h.state.factors[fid].judgement]
+            stale_rounds = stale_rounds + 1 if progress() == before else 0
+            if pending and stale_rounds >= 2:
+                raise ReviewStopped('두 회차 동안 새 근거나 분석 결과가 늘지 않아 조기 중단했습니다.')
+        if pending:
+            raise ReviewStopped('후속 요청 회차 한도에 도달했습니다. 확보한 결과는 보존했습니다.')
     finally:
-        stop.set()
-        pool.shutdown(wait=True, cancel_futures=True)
-        while not queue.empty():
-            kind, fid, value = queue.get()
-            if kind == 'state':
-                h.state.factors[fid] = value
-                h.state.report_id = None
+        # Production client has the same deadline. Do not block the UI joining an expired call.
+        pool.shutdown(wait=False, cancel_futures=True)
         h.save()
         atomic_json(h.store.path/'performance.json', metrics.snapshot())
-    # F24/F30 and unresolved/conflicting work retain the original adaptive machinery.
-    yield from analyse_factors(h, targets, concurrency=concurrency, metrics=metrics)

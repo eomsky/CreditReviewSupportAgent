@@ -58,6 +58,10 @@ class MeasuredClient:
         finally:
             self.metrics.record('llm_'+method, started)
 
+    def set_deadline(self, deadline):
+        if hasattr(self.client, 'set_deadline'):
+            self.client.set_deadline(deadline)
+
     def next_action(self, context):
         return self._call('next_action', context)
 
