@@ -12,6 +12,8 @@ def service_failure(error):
 
 def explain_failure(error):
     value = str(error).lower()
+    if "active writer" in value:
+        return "이 보고서가 다른 실행에서 작성 중입니다. 진행 중인 실행이 끝난 뒤 이어서 작성할 수 있습니다."
     if "530" in value:
         return "Colab 연결 터널이 응답하지 않습니다(HTTP 530). Colab 서버와 연결 주소를 복구해야 합니다."
     if any(x in value for x in ("401", "403")):

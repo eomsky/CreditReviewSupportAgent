@@ -80,7 +80,11 @@ class ColabClient:
 
     def next_action(self, context: dict) -> str:
         prompt = (Path(__file__).parent / "prompts" / "factor.md").read_text(encoding="utf-8")
-        return self.complete(prompt + "\nJSON schema:\n" + json.dumps(Action.model_json_schema(), ensure_ascii=False), context, Action.model_json_schema())
+        schema = Action.model_json_schema()
+        allowed = context.get("available_actions")
+        if allowed:
+            schema["properties"]["action"]["enum"] = allowed
+        return self.complete(prompt + "\nJSON schema:\n" + json.dumps(schema, ensure_ascii=False), context, schema)
 
     def stream_report(self, context):
         prompt = ('확보된 분석을 기업여신 심사보고서 본문으로 편집한다. 한국어 Markdown 문단과 필요한 표만 출력한다. '

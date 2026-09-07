@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import uuid
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -21,7 +22,7 @@ def identifier(value: str) -> str:
 
 def atomic_json(path: Path, value: Any):
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
+    temp = path.with_name(uuid.uuid4().hex + ".tmp")
     temp.write_text(json_text(value), encoding="utf-8")
     temp.replace(path)
 
@@ -30,6 +31,7 @@ class Store:
     def __init__(self, root: str | Path, case_id: str, run_id: str):
         self.path = Path(root) / "cases" / identifier(case_id) / "runs" / identifier(run_id)
         self.path.mkdir(parents=True, exist_ok=True)
+        self._event_lock = threading.Lock()
 
     def put(self, stage: str, payload: dict, inputs: list[str] | None = None) -> str:
         aid = identifier(stage) + "_" + uuid.uuid4().hex
@@ -39,8 +41,7 @@ class Store:
         artifact["sha256"] = hashlib.sha256(json_text(payload).encode()).hexdigest()
         path = self.path / "artifacts" / f"{aid}.json"
         path.parent.mkdir(exist_ok=True)
-        with path.open("x", encoding="utf-8") as out:
-            out.write(json_text(artifact))
+        atomic_json(path, artifact)
         return aid
 
     def get(self, aid: str) -> dict:
@@ -48,7 +49,7 @@ class Store:
 
     def event(self, **value):
         value["time"] = datetime.now(timezone.utc).isoformat()
-        with (self.path / "events.jsonl").open("a", encoding="utf-8") as out:
+        with self._event_lock, (self.path / "events.jsonl").open("a", encoding="utf-8") as out:
             out.write(json.dumps(value, ensure_ascii=False, default=str) + "\n")
 
     def artifacts(self):

@@ -4,6 +4,8 @@ import importlib
 import json
 import os
 from datetime import date
+from contextlib import ExitStack
+from time import monotonic
 from pathlib import Path
 
 import streamlit as st
@@ -22,6 +24,10 @@ importlib.reload(models_module)
 ColabClient = importlib.reload(llm_module).ColabClient
 Harness = importlib.reload(harness_module).Harness
 importlib.reload(reporting_module)
+import credit_review.parallel as parallel_module
+importlib.reload(parallel_module)
+from credit_review.parallel import analyse_factors, run_lease, Measurements, MeasuredClient
+from credit_review.store import atomic_json
 from credit_review.registry import FACTORS
 from credit_review.reporting import report_document, report_markdown
 from credit_review.store import identifier
@@ -110,7 +116,13 @@ if start or resume:
         current_question = previous.get("question", "") if previous else ""
         if not current_question:
             current_question = next((f.inquiry.question for f in h.state.factors.values() if f.inquiry and not f.judgement), "")
+    lease_stack = ExitStack()
+    owns_run = False
+    metrics = None
     try:
+        if h and resume:
+            lease_stack.enter_context(run_lease(h))
+            owns_run = True
         if h:
             checkpoint(h, "RUNNING", stage)
         if live:
@@ -129,7 +141,14 @@ if start or resume:
                     folder.mkdir(parents=True, exist_ok=True)
                     path = folder / (hashlib.sha256(file.getvalue()).hexdigest() + ".pdf")
                     path.write_bytes(file.getvalue())
-                    sources.extend(from_pdf(path, published))
+                    cache_path = folder / (path.stem + f"_{published}_extract_v1.json")
+                    with st.spinner(f"{file.name}의 본문과 표를 준비하고 있습니다."):
+                        if cache_path.exists():
+                            extracted = from_json(cache_path.read_bytes())
+                        else:
+                            extracted = from_pdf(path, published)
+                            atomic_json(cache_path, {'sources': [s.model_dump(mode='json') for s in extracted]})
+                    sources.extend(extracted)
             if not sources or not any(s.text.strip() and s.published_at <= cutoff for s in sources):
                 raise ValueError("No readable evidence within review date")
             if len({s.id for s in sources}) != len(sources):
@@ -138,6 +157,11 @@ if start or resume:
             st.session_state.harness = h
         else:
             h.client = client
+        if not owns_run:
+            lease_stack.enter_context(run_lease(h))
+            owns_run = True
+        metrics = Measurements()
+        h.client = MeasuredClient(client, metrics)
         st.session_state.pop("generation_message", None)
         progress = st.empty()
         activity = st.empty()
@@ -169,32 +193,27 @@ if start or resume:
                     show_report(h)
         targets = ["F24"] if h.state.mode == "DEMO" else list(FACTORS)
         with st.spinner("심사보고서를 작성하고 있습니다."):
-            for i, fid in enumerate(targets):
-                factor = h.state.factors[fid]
-                if factor.judgement:
-                    if live and not factor.report_text:
-                        write_section(fid)
-                    continue
-                if factor.status in ("ERROR", "LIMIT_REACHED", "NO_PROGRESS"):
-                    h.reset_factor(fid)
-                for _ in range(24):
-                    factor = h.state.factors[fid]
-                    question = factor.inquiry.question if factor.inquiry else f"{FACTORS[fid]['name']}에서 여신 판단에 중요한 쟁점은 무엇인가?"
-                    if factor.status == "RETRYING":
-                        activity.info(f"{question}\n\n자료 형식과 검증 결과를 재검토하고 있습니다.")
-                    else:
-                        status("review", question)
-                    factor = h.step(fid, max_steps=24, repair_attempts=2, on_status=status)
-                    if factor.error and service_failure(factor.error):
-                        raise RuntimeError(factor.error)
-                    if factor.judgement or factor.status in ("ERROR", "LIMIT_REACHED", "NO_PROGRESS"):
-                        break
-                if live and factor.judgement:
-                    write_section(fid)
-                # Preserve missing/conflict/errors internally. They are not report sections.
-                with report_area.container():
-                    show_report(h)
-                progress.progress((i + 1) / len(targets), text="심사보고서 작성 중")
+            questions = {}
+            for event in analyse_factors(h, targets, concurrency=2 if live else 1, metrics=metrics):
+                kind, fid = event['kind'], event.get('factor_id')
+                if kind == 'status':
+                    value = event['value']
+                    labels = {'plan':'검토 계획', 'reframe':'접근 재정의', 'search':'근거 검색',
+                              'read':'원문 확인', 'dataset':'자료 구성', 'reuse':'검증된 자료 재사용',
+                              'calculate':'Python 계산', 'conclude':'판단 정리', 'review':'판단 중'}
+                    questions[fid] = value['question'] + ' — ' + labels.get(value['action'], '검토 중')
+                    stage, current_question = '요인별 근거 검토', value['question']
+                    checkpoint(h, 'RUNNING', stage, current_question)
+                elif kind == 'done':
+                    questions.pop(fid, None)
+                if kind in ('state', 'done'):
+                    with report_area.container():
+                        show_report(h)
+                elapsed = int(event['metrics']['elapsed_seconds'])
+                text = '\n\n'.join(f"{FACTORS[k]['name']}: {v}" for k, v in questions.items())
+                activity.info(f"{text or '다음 검토를 준비하고 있습니다.'}\n\n경과 {elapsed//60}분 {elapsed%60}초 · 동시 검토 {len(event['active'])}개")
+                if 'finished' in event:
+                    progress.progress(event['finished']/event['total'], text='심사보고서 작성 중')
             if any(f.judgement for f in h.state.factors.values()):
                 try:
                     stage = "요인별 판단 종합"
@@ -214,10 +233,14 @@ if start or resume:
         progress.empty()
         activity.empty()
     except Exception as error:
-        if h:
+        if h and owns_run:
             h.store.event(action="report_generation", status="ERROR", error=str(error))
             checkpoint(h, "FAILED", stage, current_question, explain_failure(error))
         st.session_state.generation_message = explain_failure(error)
+    finally:
+        if metrics and h and owns_run:
+            atomic_json(h.store.path/'performance.json', metrics.snapshot())
+        lease_stack.close()
     st.rerun()
 
 if h and report_document(h)["sections"]:

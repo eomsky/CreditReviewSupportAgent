@@ -17,7 +17,6 @@ class Harness:
     def __init__(self, store: Store, state: ReviewState, retriever: Retriever, client, executor=None):
         self.store, self.state, self.retriever, self.client = store, state, retriever, client
         self.executor = executor or DockerExecutor()
-        self.save()
 
     @classmethod
     def create(cls, root, case_id, review_date, sources, client, mode="LIVE", embedding_model="", executor=None):
@@ -30,7 +29,9 @@ class Harness:
         store.put("manifest", {"source_revision": revision, "review_date": str(review_date), "mode": mode,
             "factor_registry": FACTORS, "embedding_model": embedding_model,
             "llm_model": getattr(client, "model", "scripted-demo"), "harness_version": "0.1.0"})
-        return cls(store, state, Retriever(sources, review_date, embedding_model), client, executor)
+        harness = cls(store, state, Retriever(sources, review_date, embedding_model), client, executor)
+        harness.save()
+        return harness
 
     def save(self):
         active = [f for f in self.state.factors.values() if f.applicability != "NOT_APPLICABLE"]
@@ -46,7 +47,10 @@ class Harness:
                 "datasets": {aid: self.store.get(aid)["payload"] for aid in factor.dataset_ids},
                 "calculations": {aid: self.store.get(aid)["payload"] for aid in factor.calculation_ids},
                 "related_findings": {k: v.judgement.model_dump(mode="json") for k, v in self.state.factors.items() if k != fid and v.judgement},
-                "available_actions": ["plan", "reframe", "search", "read", "dataset", "calculate", "conclude"]}
+                "shared_datasets": {aid: {k: v for k, v in self.store.get(aid)["payload"].items() if k not in ("rows", "cell_sources")}
+                    for other in self.state.factors.values() for aid in other.dataset_ids if aid not in factor.dataset_ids},
+                "available_actions": (["plan"] if not factor.inquiry else (["reframe"] if factor.reframes < 3 else []))
+                    + ["search", "read", "dataset", "calculate", "reuse", "conclude"]}
 
     def step(self, fid: str, max_steps: int = 15, repair_attempts: int = 0, on_status=None):
         factor = self.state.factors[fid]
@@ -57,7 +61,7 @@ class Harness:
             self.save()
             return factor
         # Single-writer lease protects against double clicks / concurrent browser sessions.
-        lock = self.store.path / ".step.lock"
+        lock = self.store.path / getattr(self, "lock_name", ".step.lock")
         with lock.open("x"):
             pass
         request_id = None
@@ -122,6 +126,19 @@ class Harness:
                 payload = {"sources": rows}
             f.evidence_ids = sorted(set(f.evidence_ids) | {s["id"] for s in rows})
             return self.store.put(action.action, payload, [parent_id])
+        if action.action == "reuse":
+            available = {aid for other in self.state.factors.values() for aid in other.dataset_ids}
+            if not set(action.reuse_dataset_ids).issubset(available):
+                raise ValueError("Reuse requires a dataset from this run's source revision")
+            for aid in action.reuse_dataset_ids:
+                data = Dataset.model_validate(self.store.get(aid)["payload"])
+                refs = {sid for row in data.cell_sources for ids in row.values() for sid in ids}
+                self.retriever.read(sorted(refs))
+                validate_dataset(data, refs)
+                f.evidence_ids = sorted(set(f.evidence_ids) | refs)
+                if aid not in f.dataset_ids:
+                    f.dataset_ids.append(aid)
+            return self.store.put("reuse", {"dataset_ids": action.reuse_dataset_ids}, [parent_id] + action.reuse_dataset_ids)
         if action.action == "dataset":
             data = action.dataset
             df = validate_dataset(data, set(f.evidence_ids))
@@ -240,7 +257,8 @@ class Harness:
         store = Store(root, case_id, run_id)
         state = ReviewState.model_validate_json((store.path / "state.json").read_text(encoding="utf-8"))
         from .models import Source
-        artifacts = store.artifacts()
+        artifacts = [json.loads(p.read_text(encoding="utf-8")) for pattern in ("sources_*.json", "manifest_*.json")
+                     for p in (store.path / "artifacts").glob(pattern)]
         sources = [Source.model_validate(s) for a in artifacts if a["stage"] == "sources" for s in a["payload"]["sources"]]
         manifest = next(a["payload"] for a in artifacts if a["stage"] == "manifest")
         return cls(store, state, Retriever(sources, state.review_date, manifest["embedding_model"]), client, executor)

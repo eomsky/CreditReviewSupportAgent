@@ -91,11 +91,12 @@ class Inquiry(Model):
 
 
 class Action(Model):
-    action: Literal["plan", "reframe", "search", "read", "dataset", "calculate", "conclude"]
+    action: Literal["plan", "reframe", "search", "read", "dataset", "calculate", "reuse", "conclude"]
     reason: str
     inquiry: Inquiry | None = None
     query: str | None = None
     source_ids: list[str] = Field(default_factory=list)
+    reuse_dataset_ids: list[str] = Field(default_factory=list)
     dataset: Dataset | None = None
     calculation: Calculation | None = None
     judgement: Judgement | None = None
@@ -103,7 +104,7 @@ class Action(Model):
     @model_validator(mode="after")
     def payload(self):
         required = {"plan": self.inquiry, "reframe": self.inquiry, "search": self.query, "read": self.source_ids,
-                    "dataset": self.dataset, "calculate": self.calculation,
+                    "dataset": self.dataset, "calculate": self.calculation, "reuse": self.reuse_dataset_ids,
                     "conclude": self.judgement}[self.action]
         if not required:
             raise ValueError(f"Missing payload for {self.action}")

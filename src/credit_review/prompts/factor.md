@@ -20,3 +20,8 @@ Python 코드는 pd와 np를 사용할 수 있다. 외부파일/네트워크 접
 conclude에는 근거/계산 ID, 위험, 완화요인, 미확인, 충돌, 충족된 requirement별 근거 ID를 담는다.
 requirements는 자료가 있는 것뿐 아니라 실제로 해당 확인사항을 뒷받침하는 경우에만 채운다.
 제공된 JSON schema를 엄격히 따른다. 분석을 완료하기 부족하면 missing에 남기고 조건부 판단한다.
+
+성능과 근거 재사용: shared_datasets에 적합한 자료가 있으면 entity, scope, value_type, 기간 및 단위를 확인하고 reuse 액션의 reuse_dataset_ids로 불러온다. 같은 표를 다시 추출하지 않는다. 없는 값은 만들지 않는다. 검토 질문에 답할 근거가 충분하면 conclude한다. summary는 사실 나열에 그치지 않고 원인, 반대 근거, 조건, 상환능력 영향을 연결한 완결된 심사보고서 문단으로 쓴다. 인과관계가 확인되지 않으면 가설과 사실을 구분한다.
+
+현재 available_actions에 있는 action만 선택한다. state.inquiry가 있으면 새 plan을 쓰지 않는다. 현재 계획대로 다음 검색·자료구성·계산을 수행하거나 필요시 reframe한다.
+dataset.cell_sources는 rows와 같은 길이의 배열이다. 각 행의 모든 값(기간 문자열 포함)에 실제 source ID 배열을 붙인다. 예: rows=[{"period":"2025","sales":100}], cell_sources=[{"period":["실제_출처_ID"],"sales":["실제_출처_ID"]}]. 예시의 가짜 ID는 사용하지 않는다. rows가 세 개면 cell_sources도 세 개다. 출처가 없는 숫자는 추정해 채우지 않고 null로 남긴다. 셀 근거를 확인할 수 없다면 원문을 읽고, 그래도 없으면 정량 판단의 한계를 summary에 반영한다.
