@@ -130,6 +130,14 @@ class ColabClient:
     def set_usage_observer(self, observer):
         self._usage_observer = observer
 
+    def prepare_financial(self, context):
+        from .prepared_client import prepare_financial
+        return prepare_financial(self, context)
+
+    def review_bundle(self, context):
+        from .prepared_client import review_bundle
+        return review_bundle(self, context)
+
     def next_action(self, context: dict) -> str:
         prompt = (Path(__file__).parent / "prompts" / "factor.md").read_text(encoding="utf-8")
         schema = Action.model_json_schema()

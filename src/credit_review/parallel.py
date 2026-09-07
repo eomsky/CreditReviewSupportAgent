@@ -117,6 +117,12 @@ class MeasuredClient:
     def next_actions(self, context):
         return self._call('next_actions', context)
 
+    def prepare_financial(self, context):
+        return self._call('prepare_financial', context)
+
+    def review_bundle(self, context):
+        return self._call('review_bundle', context)
+
     def stream_report(self, context):
         started = monotonic()
         try:

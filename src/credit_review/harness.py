@@ -333,6 +333,32 @@ class Harness:
                 "status": "INTERRUPTED"}, [request])
             raise
 
+    def stream_synthesis(self):
+        """One editorial streaming call over completed, provenance-checked findings."""
+        completed={fid:f for fid,f in self.state.factors.items() if f.judgement}
+        if not completed: raise ValueError('No supported findings for synthesis')
+        context={'review_date':str(self.state.review_date),
+            'purpose':'요인별 본문은 이미 표시되어 있다. 상충관계·핵심 상환재원·조건과 종합심사의견만 3~5개 문단으로 작성한다.',
+            'factors':{fid:{'name':FACTORS[fid]['name'],'judgement':f.judgement.model_dump()}
+                       for fid,f in completed.items()},
+            'unanalysed':[fid for fid in FACTORS if fid not in completed]}
+        parent=self.store.put('direct_synthesis_input',context)
+        chunks=[]
+        try:
+            for chunk in self.client.stream_report(context):
+                chunks.append(chunk)
+                yield chunk
+            text=''.join(chunks).strip()
+            if not text: raise ValueError('Empty synthesis')
+            self.state.report_id=self.store.put('report',{'title':'종합심사의견','narrative':text,
+                'paragraphs':[], 'status':'DRAFT_ONLY', 'mode':self.state.mode,
+                'unanalysed':context['unanalysed'],
+                'verification':'editorial synthesis of supplied findings; semantic review pending'},[parent])
+            self.save()
+        except Exception:
+            self.store.put('narrative_partial',{'factor_id':None,'text':''.join(chunks),'status':'INTERRUPTED'},[parent])
+            raise
+
     @classmethod
     def resume(cls, root, case_id, run_id, client, executor=None):
         store = Store(root, case_id, run_id)
