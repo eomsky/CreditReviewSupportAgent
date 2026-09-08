@@ -133,6 +133,9 @@ class MeasuredClient:
     def review_bundle(self, context):
         return self._call('review_bundle', context)
 
+    def review_monetary_report(self, context):
+        return self._call('review_monetary_report', context)
+
     def stream_report(self, context):
         token=self.metrics.begin('llm_stream_report')
         try:

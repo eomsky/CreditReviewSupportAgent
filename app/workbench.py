@@ -48,7 +48,8 @@ import credit_review.prepared as prepared_module
 importlib.reload(prepared_module)
 import credit_review.prepared_client as prepared_client_module
 importlib.reload(prepared_client_module)
-from credit_review.prepared import analyse_prepared
+from credit_review.prepared import analyse_prepared, part_timings, record_part_timing
+from credit_review.monetary_review import run_monetary_review
 from credit_review.ingestion import prepare_upload
 from credit_review.store import atomic_json
 from credit_review.registry import FACTORS
@@ -341,6 +342,22 @@ if start or resume:
                 errors = [f.error for f in h.state.factors.values() if f.error]
                 raise RuntimeError(errors[-1] if errors else "Analysis validation failed: no supported judgements")
         incomplete = [f for f in h.state.factors.values() if not f.judgement]
+        if live and not incomplete:
+            stage, current_question = "금액 단위 최종 검수", "완성된 보고서의 금액 표기 검산"
+            checkpoint(h, "RUNNING", stage, current_question)
+            activity.info("완성된 보고서의 금액 단위와 자릿수를 최종 검수하고 있습니다.")
+            h.client.set_deadline(monotonic() + 180)
+            review_started = monotonic()
+            review_status = "FAILED"
+            try:
+                run_monetary_review(h, h.client, report_document(h, apply_final_review=False))
+                review_status = "COMPLETED"
+                with report_area.container():
+                    show_report(h)
+            finally:
+                review_ended = monotonic()
+                record_part_timing(h, "09", "금액 단위 최종 검수", review_status,
+                                   review_started, review_ended, metrics.started)
         checkpoint(h, "PARTIAL" if incomplete else "COMPLETED", "보고서 저장", reason=
             "일부 요인 분석이 검증 또는 실행 한도에서 종료되어 부분 보고서로 저장했습니다." if incomplete else "")
         progress.empty()
@@ -367,3 +384,11 @@ if start or resume:
 
 if h and report_document(h)["sections"]:
     st.download_button("심사보고서 다운로드", report_markdown(report_document(h)), "credit_review_report.md", mime="text/markdown")
+    timings = part_timings(h)
+    if timings:
+        with st.expander("파트별 소요시간", expanded=False):
+            st.table([{
+                "파트": row["title"],
+                "상태": row["status"],
+                "소요시간": f"{row['duration_seconds']:.1f}초",
+            } for row in timings])

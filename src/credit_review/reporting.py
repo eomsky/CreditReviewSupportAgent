@@ -1,11 +1,13 @@
 """Report-only projection. Internal coverage/missing lists never enter this view."""
+import json
 from .registry import FACTORS
 from .report_plan import REPORT_SECTIONS, FACTOR_HEADINGS
+from .monetary_review import apply_monetary_review
 
 SECTIONS = [(section["title"], list(section["factor_ids"])) for section in REPORT_SECTIONS]
 
 
-def report_document(h):
+def report_document(h, apply_final_review=True):
     """Keep factual qualifications in analysis; omit operational checklists."""
     sections = []
     displayed_datasets = set()
@@ -43,9 +45,17 @@ def report_document(h):
         paragraphs = [{"heading": "", "text": raw["narrative"]}] if raw.get("narrative") else [
             {"heading": "", "text": p["text"]} for p in raw["paragraphs"]]
         sections.append({"title": "종합심사의견", "paragraphs": paragraphs, "tables": []})
-    return {"title": "주요여신위험 및 종합심사의견", "case_id": h.state.case_id,
-            "review_date": str(h.state.review_date), "mode": h.state.mode,
-            "sections": sections, "draft": True}
+    report = {"title": "주요여신위험 및 종합심사의견", "case_id": h.state.case_id,
+              "review_date": str(h.state.review_date), "mode": h.state.mode,
+              "sections": sections, "draft": True}
+    review_path = h.store.path / "monetary_review.json"
+    if apply_final_review and review_path.exists():
+        try:
+            report = apply_monetary_review(report, json.loads(review_path.read_text(encoding="utf-8")))
+        except Exception:
+            # A stale or malformed audit must never replace the evidence-backed report.
+            pass
+    return report
 
 
 def report_markdown(report):

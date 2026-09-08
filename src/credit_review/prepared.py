@@ -61,6 +61,29 @@ class BundleReview(Model):
     requests: list[EvidenceRequest] = Field(default_factory=list, max_length=3)
 
 
+def record_part_timing(h, call_id, title, status, started, ended, run_started):
+    """Persist actual worker occupancy, excluding time spent waiting in the pool."""
+    path = h.store.path / "section_timings.json"
+    current = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"parts": {}}
+    current["parts"][call_id] = {
+        "title": title,
+        "status": status,
+        "started_seconds": round(max(0, started - run_started), 3),
+        "ended_seconds": round(max(0, ended - run_started), 3),
+        "duration_seconds": round(max(0, ended - started), 3),
+    }
+    atomic_json(path, current)
+
+
+def part_timings(h):
+    path = h.store.path / "section_timings.json"
+    if not path.exists():
+        return []
+    parts = json.loads(path.read_text(encoding="utf-8")).get("parts", {})
+    order = [section["call_id"] for section in REPORT_SECTION_CALLS] + ["09"]
+    return [{"call_id": key, **parts[key]} for key in order if key in parts]
+
+
 def evidence_pack(h, ids, extra=None, budget=42000, prefer_consolidated=False, only_extra=False):
     """Deduplicate ranked bodies once, preserving exact IDs and omitted markers."""
     ranked, by_factor = {}, {}
@@ -242,10 +265,20 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=900, *
                     }, ids)
             h.save()
 
-            futures = {pool.submit(h.client.review_bundle, context): (section, ids, marker, parent)
-                       for section, ids, marker, parent, context in jobs}
+            def timed_review(context, timing):
+                timing['started'] = monotonic()
+                try:
+                    return h.client.review_bundle(context)
+                finally:
+                    timing['ended'] = monotonic()
+
+            futures = {}
+            for section, ids, marker, parent, context in jobs:
+                timing = {}
+                futures[pool.submit(timed_review, context, timing)] = (section, ids, marker, parent, timing)
             for future in as_completed(futures):
-                section, ids, marker, parent = futures[future]
+                section, ids, marker, parent, timing = futures[future]
+                part_status = 'FAILED'
                 try:
                     raw = future.result()
                     output = h.store.put(f"section_{section['call_id']}_output", {'raw': raw}, [parent])
@@ -275,6 +308,7 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=900, *
                         'section': section['call_title'], 'factor_ids': ids,
                         'accepted_factor_ids': sorted(seen - missing), 'output_artifact_id': output,
                     })
+                    part_status = 'COMPLETED' if not missing else 'PARTIAL'
                 except Exception as error:
                     h.store.event(action='section_failure', stage=section['call_title'], factors=ids, error=str(error))
                     for fid in ids:
@@ -285,6 +319,8 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=900, *
                         'factor_ids': ids, 'error': str(error)[:1000],
                     })
                 finally:
+                    record_part_timing(h, section['call_id'], section['call_title'], part_status,
+                                       timing.get('started', monotonic()), timing.get('ended', monotonic()), metrics.started)
                     h.save()
                     atomic_json(h.store.path/'performance.json', metrics.snapshot())
                     for fid in ids:

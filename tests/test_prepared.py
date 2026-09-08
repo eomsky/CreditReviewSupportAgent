@@ -5,7 +5,7 @@ from time import sleep
 from test_harness import make
 from credit_review.prepared import analyse_prepared, evidence_pack, review_context
 from credit_review.models import Judgement
-from credit_review.prepared_client import alias_context, prepare_financial, review_bundle
+from credit_review.prepared_client import alias_context, prepare_financial, review_bundle, review_monetary_report
 from credit_review.registry import FACTORS
 from credit_review.report_plan import REPORT_SECTIONS, REPORT_SECTION_CALLS, REPORT_FACTOR_ORDER, REPORT_CALL_FACTOR_ORDER
 from credit_review.section_prompts import (
@@ -68,6 +68,9 @@ def test_report_sections_are_called_once_in_dependency_waves(tmp_path,concurrenc
     assert all(f.judgement for f in h.state.factors.values())
     assert all(f.status=='PARTIALLY_FULFILLED' for f in h.state.factors.values())
     assert any(e['kind']=='state' for e in events)
+    timings=json.loads((h.store.path/'section_timings.json').read_text(encoding='utf-8'))['parts']
+    assert set(timings)=={section['call_id'] for section in REPORT_SECTION_CALLS}
+    assert all(row['duration_seconds'] >= 0 for row in timings.values())
     assert not list(h.store.path.glob('quality_review.json'))
     assert not list((h.store.path/'artifacts').glob('prepared_foundation_input_*.json'))
 
@@ -197,7 +200,9 @@ def test_every_single_pass_section_receives_reference_report_prompt():
     assert '각 소제목을 중복 없이 3~4문장으로 완결' in prompts['05a']['prompt']
     assert '현금상환 가능성을 선결론 내리지 않음' in prompts['05a']['prompt']
     assert '투자활동 순현금유출을 CAPEX와 동일시하지 않음' in prompts['05b']['prompt']
-    assert '914,339,580천원을 9.14억원으로 축약하지 않으며' in prompts['06']['prompt']
+    assert '914,339,580천원은 9,143억원으로 표시' in prompts['06']['prompt']
+    assert '10억원 이하는 백만원' in prompts['06']['prompt']
+    assert '소수점을 표시하지 않고' in prompts['06']['prompt']
     assert '승인·조건부 승인·감액·만기조정·보류·부결' in prompts['07']['prompt']
     assert 'F25 summary 끝에는 줄을 바꾸어 “종합심사의견:”' in prompts['07']['prompt']
     assert 'F27 summary는 신청내용→신청배경→자금용도를 순서대로 모두 포함함' in prompts['02']['prompt']
@@ -263,3 +268,21 @@ def test_report_plan_covers_every_factor_once():
     assert len(REPORT_CALL_FACTOR_ORDER)==30
     assert len(set(REPORT_CALL_FACTOR_ORDER))==30
     assert set(REPORT_CALL_FACTOR_ORDER)==set(FACTORS)
+
+
+def test_final_monetary_review_is_patch_only_and_path_bound():
+    captured = {}
+    class Client:
+        def complete(self, prompt, context, schema, request_options):
+            captured.update(prompt=prompt, context=context, schema=schema, options=request_options)
+            return '{"edits":[]}'
+    result = review_monetary_report(Client(), {
+        'report': {'sections': []},
+        'allowed_paths': ['/sections/0/paragraphs/0/text'],
+    })
+    assert result == '{"edits":[]}'
+    assert captured['schema']['$defs']['MonetaryEdit']['properties']['path']['enum'] == [
+        '/sections/0/paragraphs/0/text']
+    assert '오직 잘못된 금액 토큰과 취소선 표시만 교정' in captured['prompt']
+    assert '10억원을 초과하면 억원' in captured['prompt']
+    assert captured['options']['max_tokens'] == 2500

@@ -3,6 +3,7 @@ import json
 import os
 from copy import deepcopy
 from .prepared import Foundation, BundleReview
+from .monetary_review import MonetaryReview
 from .batch_protocol import cell_dataset_schema, unpack_cell_records
 from .section_prompts import (
     GLOBAL_REPORT_STYLE_PROMPT,
@@ -220,8 +221,10 @@ def review_bundle(client, context):
         'summary는 즉시 보고서에 넣을 한국어 심사의견이다. 사실→원인/대안적 해석→현금흐름 또는 상환능력 영향→조건을 '
         '근거가 허용하는 범위에서 연결한다. 위험·완화 요인을 비교하고 상충을 명시한다. 내부 사고 전문을 출력하지 않는다. '
         '본문의 수치를 인용할 수 있지만 새 비율이나 증감 계산은 EXECUTED calculations에 있을 때만 사용한다. '
-        '금액은 원문의 수치와 단위를 그대로 옮긴다. 원/천원/백만원을 억원으로 환산하거나 반올림하지 않는다. '
-        'Python 계산에 명시적으로 있는 환산 결과만 예외이다. USD 같은 외화에 원화 단위를 붙이지 않는다. '
+        '원화 금액은 검증된 원문 수치를 바탕으로 단위만 환산함. 10억원 이하는 백만원, 10억원을 초과하는 금액은 억원으로 '
+        '표시하고, 환산한 금액은 가장 가까운 정수로 반올림하여 소수점을 표시하지 않음. 천 단위 구분기호를 적용함. '
+        '예: 950,000천원→950백만원, 1,050,000천원→11억원, 914,339,580천원→9,143억원으로 표시함. '
+        '환산 전후의 값이 일치하는지 자릿수를 검산함. USD 같은 외화는 원래 통화와 단위를 유지하되 금액의 소수점은 표시하지 않으며, 환율 근거 없이 원화로 바꾸지 않음. '
         'R1 같은 내부 출처 ID는 evidence_ids에만 넣고 summary·위험·완화 문장에 쓰지 않는다. '
         '부채비율 200% 같은 임의 임계치만으로 위험을 단정하지 않는다. 투자·비현금 손익과 영업현금흐름, '
         '모회사 지원능력/지원의사/법적 보증, 기존 사채조건/이번 신청여신 조건을 구분한다. '
@@ -256,3 +259,27 @@ def review_bundle(client, context):
         options['thinking_token_budget']=max(1,int(os.environ[budget_key]))
     return restore(client.complete(prompt,context,schema,request_options={
         **options}))
+
+
+def review_monetary_report(client, context):
+    """Ninth and final call: return minimal, path-bound amount corrections only."""
+    schema = MonetaryReview.model_json_schema()
+    allowed = list(context.get('allowed_paths', []))
+    schema['$defs']['MonetaryEdit']['properties']['path'] = {
+        'type': 'string', 'enum': allowed,
+    }
+    prompt = (
+        '이 호출은 모든 목차가 완성된 여신심사보고서의 금액 표기만 검수하는 마지막 1회 검증임. '
+        '보고서의 판단, 사실, 문장, 단어, 문장순서, 어미를 다시 작성하거나 요약하지 않음. 오직 잘못된 금액 토큰과 취소선 표시만 교정함. '
+        '원화 금액은 10억원 이하이면 백만원, 10억원을 초과하면 억원으로 표시함. 모든 금액은 가장 가까운 정수로 반올림하고 소수점을 쓰지 않음. '
+        '1억원은 100백만원, 1백만원은 1,000천원, 1천원은 1,000원임. 환산 전후 가치와 자릿수를 반드시 검산함. '
+        '외화는 통화와 단위를 유지하고 소수점만 정수로 반올림함. 환율 근거가 없으면 원화로 변환하지 않음. '
+        '백분율, 금리, 날짜, 주식수, 생산량, 면적은 금액이 아니므로 수정하지 않음. 보고서 내에서 확인되지 않는 새 금액을 만들지 않음. '
+        'amount 편집의 old와 new는 주변 문구를 포함하지 않는 최소 금액 문자열이어야 함. 예: old="1,958,239,748천원", new="19,582억원". '
+        '같은 필드에 old가 반복되면 occurrence로 수정할 번호를 1부터 지정함. '
+        'cancellation 편집은 ~~...~~, <s>...</s>, <del>...</del>, 결합 취소선의 표시만 제거하고 내부 문자열은 그대로 둔다. 범위를 나타내는 단일 ~는 제거하지 않음. '
+        '수정이 필요한 경우에만 edits를 반환하고, 금액이 모두 정상이면 edits=[]를 반환함. 인사말과 설명 문장 없이 압축 JSON만 출력함.'
+    )
+    return client.complete(prompt, context, schema, request_options={
+        'max_tokens': 2500, 'chat_template_kwargs': {'enable_thinking': False},
+    })
