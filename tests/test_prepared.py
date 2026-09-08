@@ -6,6 +6,7 @@ from credit_review.models import Judgement
 from credit_review.prepared_client import alias_context, prepare_financial, review_bundle
 from credit_review.registry import FACTORS
 from credit_review.report_plan import REPORT_SECTIONS, REPORT_FACTOR_ORDER
+from credit_review.section_prompts import GLOBAL_REPORT_STYLE_PROMPT, SECTION_REPORT_PROMPTS
 
 
 def test_compact_shared_page_keeps_exact_scope_text_and_original():
@@ -120,6 +121,30 @@ def test_bundle_reference_arrays_cannot_repeat_until_token_limit():
     review_bundle(Client(),{'sources':{'a':{},'b':{}},'datasets':{},'calculations':{},
                             'factors':{'F27':FACTORS['F27']},'single_pass':True,
                             'report_section':{'number':2,'title':'여신 개요 및 신청 사유','blocks':['신청내용']}})
+
+
+def test_every_single_pass_section_receives_reference_report_prompt():
+    prompts=[]
+    class Client:
+        def complete(self,prompt,context,schema,request_options):
+            prompts.append(prompt)
+            return '{"findings":[],"requests":[]}'
+    for section in REPORT_SECTIONS:
+        review_bundle(Client(),{
+            'sources':{},'datasets':{},'calculations':{},'single_pass':True,
+            'factors':{fid:FACTORS[fid] for fid in section['factor_ids']},
+            'report_section':section,
+        })
+    assert len(prompts)==7
+    for section,prompt in zip(REPORT_SECTIONS,prompts):
+        assert GLOBAL_REPORT_STYLE_PROMPT in prompt
+        assert SECTION_REPORT_PROMPTS[section['number']] in prompt
+        assert f"【{section['number']}." in prompt
+        assert '심사자는 단순 요약자가 아니라 여신 판단의 책임 주체임' in prompt
+        assert '모든 문장 어미는' in prompt
+        assert '요인당 4~7문장을 사용한다' in prompt
+    assert '914,339,580천원을 9.14억원으로 축약하지 않으며' in prompts[5]
+    assert '승인·조건부 승인·감액·만기조정·보류·부결' in prompts[6]
 
 
 def test_initial_numeric_bundle_thinking_is_opt_in_and_separate_from_review(monkeypatch):
