@@ -85,6 +85,43 @@ def show_report(h):
         st.caption("아직 작성된 보고서가 없습니다.")
 
 st.set_page_config(page_title="기업여신 심사보고서", layout="wide")
+
+# Keep controls in a fixed left rail and reserve matching report space.
+st.markdown(
+    """
+    <style>
+    :root { --review-sidebar-width: clamp(230px, 28vw, 300px); }
+    [data-testid="stAppViewContainer"] { min-width: 0 !important; }
+    section[data-testid="stSidebar"] {
+        position: fixed !important;
+        inset: 0 auto 0 0 !important;
+        width: var(--review-sidebar-width) !important;
+        min-width: var(--review-sidebar-width) !important;
+        transform: none !important;
+        z-index: 100 !important;
+        border-right: 1px solid rgba(49, 51, 63, 0.16);
+    }
+    section[data-testid="stSidebar"] > div:first-child {
+        height: 100vh;
+        overflow-y: auto;
+    }
+    [data-testid="stSidebarCollapseButton"],
+    [data-testid="collapsedControl"] { display: none !important; }
+    .main,
+    [data-testid="stMain"] {
+        margin-left: var(--review-sidebar-width) !important;
+        width: calc(100% - var(--review-sidebar-width)) !important;
+        min-width: 0 !important;
+    }
+    .main .block-container,
+    [data-testid="stMainBlockContainer"] {
+        max-width: none !important;
+        padding: 2rem 1.5rem 4rem !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 if st.query_params.get('benchmark') == 'latest':
     import credit_review.live_view as live_view_module
     importlib.reload(live_view_module)
