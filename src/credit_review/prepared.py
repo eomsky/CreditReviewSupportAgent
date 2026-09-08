@@ -80,7 +80,7 @@ def part_timings(h):
     if not path.exists():
         return []
     parts = json.loads(path.read_text(encoding="utf-8")).get("parts", {})
-    order = [section["call_id"] for section in REPORT_SECTION_CALLS] + ["09"]
+    order = [section["call_id"] for section in REPORT_SECTION_CALLS] + ["09", "10"]
     return [{"call_id": key, **parts[key]} for key in order if key in parts]
 
 

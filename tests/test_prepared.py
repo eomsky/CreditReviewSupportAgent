@@ -5,7 +5,8 @@ from time import sleep
 from test_harness import make
 from credit_review.prepared import analyse_prepared, evidence_pack, review_context
 from credit_review.models import Judgement
-from credit_review.prepared_client import alias_context, prepare_financial, review_bundle, review_monetary_report
+from credit_review.prepared_client import (alias_context, prepare_financial, review_bundle,
+                                           review_monetary_report, generate_report_tables)
 from credit_review.registry import FACTORS
 from credit_review.report_plan import REPORT_SECTIONS, REPORT_SECTION_CALLS, REPORT_FACTOR_ORDER, REPORT_CALL_FACTOR_ORDER
 from credit_review.section_prompts import (
@@ -286,3 +287,24 @@ def test_final_monetary_review_is_patch_only_and_path_bound():
     assert '오직 잘못된 금액 토큰과 취소선 표시만 교정' in captured['prompt']
     assert '10억원을 초과하면 억원' in captured['prompt']
     assert captured['options']['max_tokens'] == 2500
+
+
+def test_table_generation_prompt_is_detailed_and_source_bound():
+    captured = {}
+    class Client:
+        def complete(self, prompt, context, schema, request_options):
+            captured.update(prompt=prompt, schema=schema, options=request_options)
+            return '{"tables":[]}'
+    result = generate_report_tables(Client(), {
+        'report': {'sections': []},
+        'allowed_source_paths': ['/sections/0/paragraphs/0/text'],
+        'placement_map': [],
+    })
+    assert result == '{"tables":[]}'
+    assert '업체개요, 주요연혁, 주요 주주·경영진' in captured['prompt']
+    assert '신청금액·기간·금리·담보·상환방법' in captured['prompt']
+    assert '3~5개년 손익·재무상태·현금흐름' in captured['prompt']
+    assert '소제목 본문 바로 뒤' in captured['prompt']
+    assert '보고서에 없는 회사명, 날짜, 금액' in captured['prompt']
+    assert captured['schema']['$defs']['GeneratedTableRow']['properties']['source_paths']['items']['enum'] == [
+        '/sections/0/paragraphs/0/text']

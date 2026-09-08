@@ -143,6 +143,10 @@ class ColabClient:
         from .prepared_client import review_monetary_report
         return review_monetary_report(self, context)
 
+    def generate_report_tables(self, context):
+        from .prepared_client import generate_report_tables
+        return generate_report_tables(self, context)
+
     def next_action(self, context: dict) -> str:
         prompt = (Path(__file__).parent / "prompts" / "factor.md").read_text(encoding="utf-8")
         schema = Action.model_json_schema()

@@ -3,11 +3,12 @@ import json
 from .registry import FACTORS
 from .report_plan import REPORT_SECTIONS, FACTOR_HEADINGS
 from .monetary_review import apply_monetary_review
+from .table_generation import apply_table_plan
 
 SECTIONS = [(section["title"], list(section["factor_ids"])) for section in REPORT_SECTIONS]
 
 
-def report_document(h, apply_final_review=True):
+def report_document(h, apply_final_review=True, apply_generated_tables=True):
     """Keep factual qualifications in analysis; omit operational checklists."""
     sections = []
     displayed_datasets = set()
@@ -48,6 +49,12 @@ def report_document(h, apply_final_review=True):
     report = {"title": "주요여신위험 및 종합심사의견", "case_id": h.state.case_id,
               "review_date": str(h.state.review_date), "mode": h.state.mode,
               "sections": sections, "draft": True}
+    table_path = h.store.path / "table_generation.json"
+    if apply_generated_tables and table_path.exists():
+        try:
+            report = apply_table_plan(report, json.loads(table_path.read_text(encoding="utf-8")))
+        except Exception:
+            pass
     review_path = h.store.path / "monetary_review.json"
     if apply_final_review and review_path.exists():
         try:
@@ -66,13 +73,26 @@ def report_markdown(report):
         lines += ["가상 자료 예시", ""]
     for i, section in enumerate(report["sections"], 1):
         lines += [f"## {i}. {section['title']}", ""]
-        for paragraph in section["paragraphs"]:
+        positioned = {}
+        trailing = []
+        for table in section["tables"]:
+            position = table.get("after_paragraph_index")
+            (positioned.setdefault(position, []) if isinstance(position, int) else trailing).append(table)
+        def add_table(table):
+            lines.extend([table["caption"], "", "| " + " | ".join(map(cell, table["columns"])) + " |",
+                          "| " + " | ".join("---" for _ in table["columns"]) + " |"])
+            lines.extend("| " + " | ".join(map(cell, row)) + " |" for row in table["rows"])
+            lines.append("")
+        for table in positioned.pop(-1, []):
+            add_table(table)
+        for paragraph_index, paragraph in enumerate(section["paragraphs"]):
             if paragraph["heading"]:
                 lines += ["**" + paragraph["heading"] + "**", ""]
             lines += [paragraph["text"], ""]
-        for table in section["tables"]:
-            lines += [table["caption"], "", "| " + " | ".join(map(cell, table["columns"])) + " |",
-                      "| " + " | ".join("---" for _ in table["columns"]) + " |"]
-            lines += ["| " + " | ".join(map(cell, row)) + " |" for row in table["rows"]]
-            lines += [""]
+            for table in positioned.pop(paragraph_index, []):
+                add_table(table)
+        for tables in positioned.values():
+            trailing.extend(tables)
+        for table in trailing:
+            add_table(table)
     return "\n".join(lines)

@@ -4,6 +4,7 @@ import os
 from copy import deepcopy
 from .prepared import Foundation, BundleReview
 from .monetary_review import MonetaryReview
+from .table_generation import TablePlan
 from .batch_protocol import cell_dataset_schema, unpack_cell_records
 from .section_prompts import (
     GLOBAL_REPORT_STYLE_PROMPT,
@@ -282,4 +283,43 @@ def review_monetary_report(client, context):
     )
     return client.complete(prompt, context, schema, request_options={
         'max_tokens': 2500, 'chat_template_kwargs': {'enable_thinking': False},
+    })
+
+
+def generate_report_tables(client, context):
+    """Ninth call: build and place report tables without rewriting prose."""
+    schema = TablePlan.model_json_schema()
+    allowed = list(context.get('allowed_source_paths', []))
+    schema['$defs']['GeneratedTableRow']['properties']['source_paths']['items'] = {
+        'type': 'string', 'enum': allowed,
+    }
+    prompt = (
+        '이 호출은 완성된 여신심사보고서 본문을 변경하지 않고 표만 전문적으로 설계·배치하는 전용 단계임. '
+        '반환값은 TablePlan JSON 하나이며 설명문, 인사말, 마크다운을 출력하지 않음. 표는 최대 10개만 선정하고, '
+        '심사자가 비교·검산·의사결정에 실제로 필요한 경우에만 생성함. 같은 사실을 본문과 여러 표에서 반복하지 않음. '
+        '\n\n【참고 심사보고서의 표 구성 원칙】 '
+        '업체현황에는 근거가 있을 때 업체개요, 주요연혁, 주요 주주·경영진, 종속기업 현황을 사용함. '
+        '여신 개요에는 신청금액·기간·금리·담보·상환방법, 자금조달계획, 집행 및 상환 프로세스를 사용함. '
+        '사업 분석에는 제품 비교, 생산능력·가동률, 출하·가격 추이, 주요 사업장·제조공정을 사용함. '
+        '주요 리스크에는 위험요인·영향·완화수단·잔존위험을 한눈에 비교하는 표를 사용할 수 있음. '
+        '재무 분석에는 동일 범위와 기준의 3~5개년 손익·재무상태·현금흐름, 성장성·수익성·안정성 지표를 우선함. '
+        '상환재원에는 차입금 구조, 계약상 만기, 보유현금과 상환재원, 부족액·차환계획을 사용함. '
+        '특이사항에는 신용등급, 당행 Exposure·담보, 우발채무·지급보증을 사용함. 근거가 없는 유형은 만들지 않음. '
+        '\n\n【배치 규칙】 section_index와 after_paragraph_index는 placement_map의 실제 번호만 사용함. '
+        '표는 그 표가 요약하는 소제목 본문 바로 뒤, 다음 소제목 전에 배치함. 문서 끝에 표를 몰아넣지 않음. '
+        '표 제목은 대상·기준일·연결/별도 범위를 짧게 표시함. 열은 2~7개, 행은 1~12개로 제한하고 지나치게 넓은 표는 나눔. '
+        '행과 열의 비교축을 일관되게 구성하고 연도는 오래된 순서에서 최신 순서로 배열함. 빈 값은 “—”로 표시함. '
+        '\n\n【수치·단위·근거 규칙】 모든 행의 source_paths에는 해당 행의 값을 직접 뒷받침하는 report 문자열 경로만 넣음. '
+        '보고서에 없는 회사명, 날짜, 금액, 비율, 등급, 전망, 계산값을 만들지 않음. 연결/별도, 당기/전기, 잔액/계약상 현금흐름, '
+        '원금/원리금을 혼합하거나 임의 합산하지 않음. 수치가 충돌하면 한 값을 고르지 말고 범위를 열 또는 행에서 구분함. '
+        '원화 금액은 10억원 이하는 백만원, 10억원 초과는 억원으로 가장 가까운 정수로 표시하고 천 단위 구분기호를 사용함. '
+        '표의 각 금액 셀에 백만원 또는 억원 단위를 직접 붙여 마지막 금액 검수가 셀 단위로 확인할 수 있게 함. '
+        'USD 등 외화는 원래 통화·배수를 유지하고 소수점 없이 표시함. 백분율과 금리는 원문 정밀도를 유지함. '
+        '취소선, 내부 근거 ID, 초안 메모, 미분석 표시를 표에 넣지 않음. '
+        '\n\n【품질 기준】 단순 문장 한 줄을 표로 바꾸지 않음. 적어도 두 항목 또는 두 기간을 비교하거나, '
+        '신청조건·재무추이·만기구조·위험대응처럼 구조화 가치가 명확해야 함. 정성 리스크 표도 본문 판단의 의미를 바꾸거나 '
+        '새 결론을 추가하지 않음. 적합한 표가 없으면 tables=[]를 반환함.'
+    )
+    return client.complete(prompt, context, schema, request_options={
+        'max_tokens': 6000, 'chat_template_kwargs': {'enable_thinking': False},
     })

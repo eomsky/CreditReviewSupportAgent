@@ -50,6 +50,7 @@ import credit_review.prepared_client as prepared_client_module
 importlib.reload(prepared_client_module)
 from credit_review.prepared import analyse_prepared, part_timings, record_part_timing
 from credit_review.monetary_review import run_monetary_review
+from credit_review.table_generation import run_table_generation
 from credit_review.ingestion import prepare_upload
 from credit_review.store import atomic_json
 from credit_review.registry import FACTORS
@@ -167,7 +168,8 @@ with st.sidebar:
                 st.rerun()
             except Exception:
                 st.error("저장된 보고서를 열 수 없습니다.")
-    upload = st.file_uploader("자료 업로드", type=["pdf", "json"], accept_multiple_files=True)
+    upload = st.file_uploader("자료 업로드 (여러 파일 선택 가능)", type=["pdf", "json"], accept_multiple_files=True,
+                              help="PDF와 구조화 JSON을 두 개 이상 함께 선택하면 하나의 심사 건으로 통합합니다.")
     case_id = st.text_input("심사건 이름", "case_001")
     cutoff = st.date_input("심사 기준일", date(2026, 4, 7))
     published = st.date_input("자료 공표일", date(2026, 3, 31))
@@ -343,6 +345,22 @@ if start or resume:
                 raise RuntimeError(errors[-1] if errors else "Analysis validation failed: no supported judgements")
         incomplete = [f for f in h.state.factors.values() if not f.judgement]
         if live and not incomplete:
+            stage, current_question = "전문 표 생성", "완성된 본문에 비교·검산용 표 배치"
+            checkpoint(h, "RUNNING", stage, current_question)
+            activity.info("본문의 근거를 유지하면서 전문 심사표를 적절한 소제목 뒤에 배치하고 있습니다.")
+            h.client.set_deadline(monotonic() + 180)
+            table_started = monotonic()
+            table_status = "FAILED"
+            try:
+                run_table_generation(h, h.client, report_document(
+                    h, apply_final_review=False, apply_generated_tables=False))
+                table_status = "COMPLETED"
+                with report_area.container():
+                    show_report(h)
+            finally:
+                table_ended = monotonic()
+                record_part_timing(h, "09", "전문 표 생성", table_status,
+                                   table_started, table_ended, metrics.started)
             stage, current_question = "금액 단위 최종 검수", "완성된 보고서의 금액 표기 검산"
             checkpoint(h, "RUNNING", stage, current_question)
             activity.info("완성된 보고서의 금액 단위와 자릿수를 최종 검수하고 있습니다.")
@@ -356,7 +374,7 @@ if start or resume:
                     show_report(h)
             finally:
                 review_ended = monotonic()
-                record_part_timing(h, "09", "금액 단위 최종 검수", review_status,
+                record_part_timing(h, "10", "금액 단위 최종 검수", review_status,
                                    review_started, review_ended, metrics.started)
         checkpoint(h, "PARTIAL" if incomplete else "COMPLETED", "보고서 저장", reason=
             "일부 요인 분석이 검증 또는 실행 한도에서 종료되어 부분 보고서로 저장했습니다." if incomplete else "")
