@@ -2,14 +2,13 @@
 import json
 from .registry import FACTORS
 from .report_plan import REPORT_SECTIONS, FACTOR_HEADINGS
-from .monetary_review import apply_monetary_review
 from .table_generation import apply_table_plan
 
 SECTIONS = [(section["title"], list(section["factor_ids"])) for section in REPORT_SECTIONS]
 
 
 def report_document(h, apply_final_review=True, apply_generated_tables=True):
-    """Keep factual qualifications in analysis; omit operational checklists."""
+    """Keep factual qualifications in analysis; monetary audit is read-only."""
     sections = []
     displayed_datasets = set()
     for title, ids in SECTIONS:
@@ -54,13 +53,6 @@ def report_document(h, apply_final_review=True, apply_generated_tables=True):
         try:
             report = apply_table_plan(report, json.loads(table_path.read_text(encoding="utf-8")))
         except Exception:
-            pass
-    review_path = h.store.path / "monetary_review.json"
-    if apply_final_review and review_path.exists():
-        try:
-            report = apply_monetary_review(report, json.loads(review_path.read_text(encoding="utf-8")))
-        except Exception:
-            # A stale or malformed audit must never replace the evidence-backed report.
             pass
     return report
 

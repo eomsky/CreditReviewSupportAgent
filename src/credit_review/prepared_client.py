@@ -263,15 +263,16 @@ def review_bundle(client, context):
 
 
 def review_monetary_report(client, context):
-    """Tenth and final call: return minimal, path-bound amount corrections only."""
+    """Tenth and final call: list path-bound amount issues without changing the report."""
     schema = MonetaryReview.model_json_schema()
     allowed = list(context.get('allowed_paths', []))
     schema['$defs']['MonetaryEdit']['properties']['path'] = {
         'type': 'string', 'enum': allowed,
     }
     prompt = (
-        '이 호출은 모든 목차가 완성된 여신심사보고서의 금액 표기만 검수하는 마지막 1회 검증임. '
-        '보고서의 판단, 사실, 문장, 단어, 문장순서, 어미를 다시 작성하거나 요약하지 않음. 오직 잘못된 금액 토큰과 취소선 표시만 교정함. '
+        '이 호출은 모든 목차가 완성된 여신심사보고서의 금액 표기만 검수하는 마지막 1회 감사임. '
+        '보고서를 수정하지 않으며 잘못된 금액과 취소선 표시를 findings용 edits 목록으로만 보고함. '
+        '보고서의 판단, 사실, 문장, 단어, 문장순서, 어미를 다시 작성하거나 요약하지 않음. '
         '원화 금액은 10억원 이하이면 백만원, 10억원을 초과하면 억원으로 표시함. 모든 금액은 가장 가까운 정수로 반올림하고 소수점을 쓰지 않음. '
         '1억원은 100백만원, 1백만원은 1,000천원, 1천원은 1,000원임. 환산 전후 가치와 자릿수를 반드시 검산함. '
         '외화는 통화와 단위를 유지하고 소수점만 정수로 반올림함. 환율 근거가 없으면 원화로 변환하지 않음. '
@@ -279,10 +280,12 @@ def review_monetary_report(client, context):
         'amount 편집의 old와 new는 주변 문구를 포함하지 않는 최소 금액 문자열이어야 함. 예: old="1,958,239,748천원", new="19,582억원". '
         '같은 필드에 old가 반복되면 occurrence로 수정할 번호를 1부터 지정함. '
         'cancellation 편집은 ~~...~~, <s>...</s>, <del>...</del>, 결합 취소선의 표시만 제거하고 내부 문자열은 그대로 둔다. 범위를 나타내는 단일 ~는 제거하지 않음. '
-        '수정이 필요한 경우에만 edits를 반환하고, 금액이 모두 정상이면 edits=[]를 반환함. 인사말과 설명 문장 없이 압축 JSON만 출력함.'
+        'old와 new가 완전히 같은 항목은 절대로 반환하지 않음. 실제로 잘못되어 권고값이 달라지는 항목만 최대 60개 반환함. '
+        '수정이 필요한 경우에만 edits를 반환하고, 금액이 모두 정상이면 edits=[]를 반환함. 이 목록은 감사 기록이며 본문에는 적용되지 않음. '
+        '인사말과 설명 문장 없이 압축 JSON만 출력함.'
     )
     return client.complete(prompt, context, schema, request_options={
-        'max_tokens': 2500, 'chat_template_kwargs': {'enable_thinking': False},
+        'max_tokens': 6000, 'chat_template_kwargs': {'enable_thinking': False},
     })
 
 

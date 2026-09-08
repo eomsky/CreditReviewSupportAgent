@@ -271,7 +271,7 @@ def test_report_plan_covers_every_factor_once():
     assert set(REPORT_CALL_FACTOR_ORDER)==set(FACTORS)
 
 
-def test_final_monetary_review_is_patch_only_and_path_bound():
+def test_final_monetary_review_is_read_only_and_path_bound():
     captured = {}
     class Client:
         def complete(self, prompt, context, schema, request_options):
@@ -284,9 +284,10 @@ def test_final_monetary_review_is_patch_only_and_path_bound():
     assert result == '{"edits":[]}'
     assert captured['schema']['$defs']['MonetaryEdit']['properties']['path']['enum'] == [
         '/sections/0/paragraphs/0/text']
-    assert '오직 잘못된 금액 토큰과 취소선 표시만 교정' in captured['prompt']
+    assert '보고서를 수정하지 않으며' in captured['prompt']
+    assert '본문에는 적용되지 않음' in captured['prompt']
     assert '10억원을 초과하면 억원' in captured['prompt']
-    assert captured['options']['max_tokens'] == 2500
+    assert captured['options']['max_tokens'] == 6000
 
 
 def test_table_generation_prompt_is_detailed_and_source_bound():

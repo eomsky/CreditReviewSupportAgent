@@ -1,4 +1,4 @@
-"""Final, patch-only review of monetary expressions in a completed report."""
+"""Final, read-only audit of monetary expressions in a completed report."""
 from __future__ import annotations
 
 from copy import deepcopy
@@ -41,7 +41,7 @@ class MonetaryEdit(Model):
 
 
 class MonetaryReview(Model):
-    edits: list[MonetaryEdit] = Field(default_factory=list, max_length=120)
+    edits: list[MonetaryEdit] = Field(default_factory=list, max_length=60)
 
 
 def report_fingerprint(report: dict) -> str:
@@ -145,34 +145,12 @@ def _replace_spans(original: str, edits: list[MonetaryEdit]) -> str:
 
 
 def apply_monetary_review(report: dict, record: dict) -> dict:
-    if record.get("status") != "COMPLETED" or record.get("input_fingerprint") != report_fingerprint(report):
-        return report
-    original_paths = text_paths(report)
-    grouped = {}
-    accepted = []
-    for raw in record.get("edits", []):
-        try:
-            edit = MonetaryEdit.model_validate(raw)
-        except Exception:
-            continue
-        original = original_paths.get(edit.path)
-        if original is None or not _valid_edit(edit, original):
-            continue
-        grouped.setdefault(edit.path, []).append(edit)
-        accepted.append(edit)
-    revised = deepcopy(report)
-    for path, edits in grouped.items():
-        tokens = [part.replace("~1", "/").replace("~0", "~") for part in path.split("/")[1:]]
-        parent = revised
-        for token in tokens[:-1]:
-            parent = parent[int(token)] if isinstance(parent, list) else parent[token]
-        leaf = int(tokens[-1]) if isinstance(parent, list) else tokens[-1]
-        parent[leaf] = _replace_spans(original_paths[path], edits)
-    return revised
+    """Compatibility shim: the monetary audit never mutates report content."""
+    return deepcopy(report)
 
 
 def run_monetary_review(h, client, report: dict):
-    """Make one final LLM call and persist only validated, minimal edits."""
+    """Make one final LLM call and persist validated findings without applying them."""
     base = deepcopy(report)
     fingerprint = report_fingerprint(base)
     path = h.store.path / "monetary_review.json"
@@ -198,23 +176,12 @@ def run_monetary_review(h, client, report: dict):
         raise
     accepted = [edit for edit in review.edits
                 if edit.path in available and _valid_edit(edit, available[edit.path])]
-    if review.edits and not accepted:
-        atomic_json(h.store.path / "monetary_review_failure.json", {
-            "status": "FAILED",
-            "input_fingerprint": fingerprint,
-            "error": "Monetary review returned no valid amount-only edits",
-            "raw_response": raw[:12000],
-            "rejected_edits": [edit.model_dump() for edit in review.edits],
-        })
-        raise ValueError("Monetary review returned no valid amount-only edits")
     candidate = {
         "status": "COMPLETED",
         "input_fingerprint": fingerprint,
-        "edits": [edit.model_dump() for edit in accepted],
+        "findings": [edit.model_dump() for edit in accepted],
+        "rejected_finding_count": len(review.edits) - len(accepted),
     }
-    revised = apply_monetary_review(base, candidate)
-    # Force overlap and occurrence validation before recording the audit.
-    text_paths(revised)
     atomic_json(path, candidate)
     (h.store.path / "monetary_review_failure.json").unlink(missing_ok=True)
     return candidate

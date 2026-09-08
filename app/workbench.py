@@ -361,9 +361,9 @@ if start or resume:
                 table_ended = monotonic()
                 record_part_timing(h, "09", "전문 표 생성", table_status,
                                    table_started, table_ended, metrics.started)
-            stage, current_question = "금액 단위 최종 검수", "완성된 보고서의 금액 표기 검산"
+            stage, current_question = "금액 단위 최종 검수", "완성된 보고서의 금액 오류 목록 작성"
             checkpoint(h, "RUNNING", stage, current_question)
-            activity.info("완성된 보고서의 금액 단위와 자릿수를 최종 검수하고 있습니다.")
+            activity.info("보고서를 변경하지 않고 금액 단위와 자릿수 오류 목록을 작성하고 있습니다.")
             h.client.set_deadline(monotonic() + 180)
             review_started = monotonic()
             review_status = "FAILED"
@@ -410,3 +410,20 @@ if h and report_document(h)["sections"]:
                 "상태": row["status"],
                 "소요시간": f"{row['duration_seconds']:.1f}초",
             } for row in timings])
+    monetary_path = h.store.path / "monetary_review.json"
+    if monetary_path.exists():
+        try:
+            monetary_audit = json.loads(monetary_path.read_text(encoding="utf-8"))
+            findings = monetary_audit.get("findings", [])
+            with st.expander(f"금액 검수 결과 ({len(findings)}건) — 보고서 미반영", expanded=False):
+                if findings:
+                    st.table([{
+                        "위치": item["path"],
+                        "현재값": item["old"],
+                        "권고값": item["new"],
+                        "사유": item.get("reason", ""),
+                    } for item in findings])
+                else:
+                    st.write("수정 권고가 필요한 금액을 확인하지 못했습니다.")
+        except Exception:
+            pass
