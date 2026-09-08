@@ -329,8 +329,11 @@ if start or resume:
                     with report_area.container():
                         show_report(h)
                 elapsed = int(event['metrics']['elapsed_seconds'])
-                text = '\n\n'.join(f"{FACTORS[k]['name']}: {v}" for k, v in questions.items())
-                activity.info(f"{text or '다음 검토를 준비하고 있습니다.'}\n\n경과 {elapsed//60}분 {elapsed%60}초 · 동시 검토 {len(event['active'])}개")
+                # Analysis artifacts stay on disk; keep live status compact above the report.
+                text = '\n\n'.join(list(questions.values())[:2])
+                if len(questions) > 2:
+                    text += f"\n\n그 외 {len(questions)-2}개 항목을 함께 검토하고 있습니다."
+                activity.info(f"{text or '다음 검토를 준비하고 있습니다.'}\n\n경과 {elapsed//60}분 {elapsed%60}초")
                 if 'finished' in event:
                     progress.progress(event['finished']/event['total'], text='심사보고서 작성 중')
             if any(f.judgement for f in h.state.factors.values()):

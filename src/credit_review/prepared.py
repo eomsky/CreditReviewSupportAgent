@@ -22,9 +22,15 @@ DISCOVERY = {
     'F02':['회사의 연혁','설립 인적분할'],
     'F05':['연결대상 종속회사 개황','종속기업 재무정보'],
     'F10':['주요 매출처 매출 비중','고객 집중도 매출액'],
+    'F13':['연결 포괄손익계산서 매출액 영업이익'],
+    'F14':['연결 포괄손익계산서 매출액 영업이익'],
+    'F16':['연결 재무상태표 부채총계 자본총계'],
+    'F17':['연결 재무상태표 현금및현금성자산'],
+    'F15':['연결 현금흐름표 영업활동'],
     'F20':['향후 투자 계획','수주상황 수주잔고'],
     'F22':['유동성위험 계약상 잔존만기','금융부채 만기분석'],
     'F24':['연결 현금흐름표 영업활동','차입금 계약상 만기'],
+    'F30':['입찰참가자격 제한 집행정지','제재현황 과징금 소송'],
 }
 
 
@@ -55,7 +61,7 @@ class BundleReview(Model):
     requests: list[EvidenceRequest] = Field(default_factory=list, max_length=3)
 
 
-def evidence_pack(h, ids, extra=None, budget=42000):
+def evidence_pack(h, ids, extra=None, budget=42000, prefer_consolidated=False, only_extra=False):
     """Deduplicate ranked bodies once, preserving exact IDs and omitted markers."""
     ranked, by_factor = {}, {}
     for fid in ids:
@@ -63,7 +69,12 @@ def evidence_pack(h, ids, extra=None, budget=42000):
         candidates = [hit['source'] for hit in hits]
         selected = candidates[:3]
         for query in DISCOVERY.get(fid,[]):
-            selected = [hit['source'] for hit in h.retriever.search(query,limit=2)] + selected
+            discovered=[hit['source'] for hit in h.retriever.search(query,limit=8)]
+            if fid in NUMERIC_INPUTS:
+                discovered=[s for s in discovered if table_card(s)][:2]
+            else:
+                discovered=discovered[:2]
+            selected = discovered + selected
         if fid in NUMERIC_FACTORS:
             selected = [s for s in candidates if table_card(s)][:2] + selected
         by_factor[fid] = list(dict.fromkeys(s['id'] for s in selected))
@@ -73,9 +84,24 @@ def evidence_pack(h, ids, extra=None, budget=42000):
             ranked[s['id']][1] += 1/(pos+1)
     for s in extra or []:
         ranked[s['id']] = [s, 100]
+    if only_extra:
+        allowed={s['id'] for s in extra or []}
+        ranked={sid:row for sid,row in ranked.items() if sid in allowed}
+    from .evidence_scope import explicit_scope
+    has_consolidated=prefer_consolidated and any(explicit_scope(row[0])['scope']=='CONSOLIDATED' for row in ranked.values())
+    if has_consolidated:
+        for entry in ranked.values():
+            card=table_card(entry[0])
+            section=' '.join(str(x) for x in (card or {}).get('section_path',[]))
+            if card and explicit_scope(entry[0])['scope']=='CONSOLIDATED' and any(
+                title in section for title in ('연결 재무상태표','연결 포괄손익계산서','연결 현금흐름표')):
+                entry[1]+=100  # Primary statements precede incidental note matches.
+    excluded_scopes=('SEPARATE','CONFLICT') if has_consolidated else ('CONFLICT',) if prefer_consolidated else ()
     packed, used = {}, 0
     for row, score in sorted(ranked.values(), key=lambda v:-v[1]):
         source = prompt_source(row, loaded=True)
+        if source.get('financial_scope',{}).get('scope') in excluded_scopes:
+            continue
         # Loaded Markdown already contains row/column labels. Keep scope and
         # provenance but do not send a second structural copy of every label.
         card = source.get('table_index')
@@ -98,8 +124,27 @@ def evidence_pack(h, ids, extra=None, budget=42000):
             'omitted_source_ids':[sid for sid in ranked if sid not in packed]}
 
 
+def foundation_context(h,ids):
+    """Use complete primary statements when their structural headings exist."""
+    from .evidence_scope import explicit_scope
+    titles=('연결재무상태표','연결포괄손익계산서','연결현금흐름표')
+    primary=[]; found=set()
+    for source in h.retriever.sources.values():
+        if source.kind!='table': continue
+        path=source.metadata.get('structured',{}).get('section_path',[])
+        section=''.join(str(x).replace(' ','') for x in path)
+        matched={title for title in titles if title in section}
+        if matched:
+            row=source.model_dump(mode='json')
+            if explicit_scope(row)['scope']=='CONSOLIDATED':
+                primary.append(row); found.update(matched)
+    if len(found)>=2:
+        return evidence_pack(h,ids,extra=primary,budget=32000,prefer_consolidated=True,only_extra=True)
+    return evidence_pack(h,ids,budget=32000,prefer_consolidated=True)
+
+
 def review_context(h, ids, extra=None):
-    context = evidence_pack(h, ids, extra)
+    context = evidence_pack(h, ids, extra,prefer_consolidated=bool(set(ids)&set(NUMERIC_INPUTS)))
     context['factors'] = {fid:FACTORS[fid] for fid in ids}
     from .review_criteria import CRITERIA
     context['review_criteria']={fid:CRITERIA[fid] for fid in ids if fid in CRITERIA}
@@ -138,7 +183,7 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
             'finished':sum(bool(h.state.factors[f].judgement) for f in targets),'total':len(targets),'metrics':metrics.snapshot()}
 
     def submit(kind, ids, extra=None, final=False):
-        context=evidence_pack(h,ids,budget=32000) if kind=='foundation' else review_context(h,ids,extra)
+        context=foundation_context(h,ids) if kind=='foundation' else review_context(h,ids,extra)
         if kind!='foundation':
             context['final_pass']=final
             context['review_pass']=kind=='quality'
@@ -152,8 +197,29 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
         while pending or jobs or followups or not review_done:
             if monotonic()>=deadline: raise TimeoutError('Prepared review reached its analysis deadline')
             while len(jobs)<slots:
+                if foundation_done and not jobs and not followups and (not pending or pending==[['F30']]) and not review_done:
+                    review_done=True
+                    critical = ['F14','F17','F22','F24','F25'] if os.environ.get('CREDIT_REVIEW_THINKING','0')=='1' else ['F02','F05','F17','F20','F22','F24','F29']
+                    ids=[f for f in critical if f in targets and h.state.factors[f].judgement]
+                    if os.environ.get('CREDIT_SEPARATE_REVIEW','1')=='0':
+                        atomic_json(h.store.path/'quality_review.json',{
+                            'status':'SKIPPED','reason':'Separate review disabled for controlled experiment',
+                            'verification':'No separate cross-factor review was performed'})
+                        ids=[]
+                    if ids and deadline-monotonic()>25:
+                        # F30 must consume revised findings, not the earlier drafts.
+                        h.client.set_deadline(deadline-8)
+                        submit('quality',ids,final=True)
+                        for fid in ids:
+                            yield event('status',fid,{'action':'review','question':FACTORS[fid]['name']+'의 수치 범위와 판단 근거를 교차 검토'})
+                        continue
+                    elif ids:
+                        atomic_json(h.store.path/'quality_review.json',{
+                            'status':'SKIPPED','reason':'Insufficient time reserved before final synthesis',
+                            'remaining_seconds':max(0,deadline-monotonic()),
+                            'verification':'No separate cross-factor review was performed'})
                 ready=next((ids for ids in pending if (foundation_done or not set(ids)&set(NUMERIC_INPUTS))
-                    and (ids!=['F30'] or (not jobs and not followups and len(pending)==1))),None)
+                    and (ids!=['F30'] or (review_done and not jobs and not followups and len(pending)==1))),None)
                 if ready:
                     pending.remove(ready)
                     submit('bundle',ready)
@@ -162,15 +228,6 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
                 elif foundation_done and followups and (not pending or pending==[['F30']]):
                     ids,extra=followups.pop(0)
                     submit('bundle',ids,extra,final=True)
-                elif not pending and not jobs and not followups and not review_done:
-                    review_done=True
-                    critical = ['F17','F22','F24'] if os.environ.get('CREDIT_REVIEW_THINKING','0')=='1' else ['F02','F05','F17','F20','F22','F24','F29']
-                    ids=[f for f in critical
-                         if f in targets and h.state.factors[f].judgement]
-                    if ids and deadline-monotonic()>15:
-                        submit('quality',ids,final=True)
-                        for fid in ids:
-                            yield event('status',fid,{'action':'review','question':FACTORS[fid]['name']+'의 수치 범위와 판단 근거를 교차 검토'})
                 else: break
             if not jobs: break
             completed,_=wait(jobs,timeout=.3,return_when=FIRST_COMPLETED)
@@ -198,6 +255,7 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
                     else:
                         reply=BundleReview.model_validate_json(raw)
                         seen=set()
+                        accepted=[]; validation_errors={}
                         for finding in reply.findings:
                             fid=finding.factor_id
                             if fid not in job['ids'] or fid in seen: raise ValueError('Duplicate or unexpected bundle factor')
@@ -206,9 +264,11 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
                                 h.apply(fid,Action(action='conclude',reason='Evidence-based bundle judgement',judgement=finding.judgement),output)
                                 h.state.factors[fid].error=None
                                 h.state.factors[fid].steps+=1
+                                accepted.append(fid)
                                 if metrics.first_report_seconds is None: metrics.first_report_seconds=monotonic()-metrics.started
                                 yield event('state',fid,h.state.factors[fid].model_copy(deep=True))
                             except ValueError as error:
+                                validation_errors[fid]=str(error)
                                 h.state.factors[fid].error=str(error)
                                 h.store.event(action='bundle_validation',factor_id=fid,error=str(error))
                         if reply.requests and not job['final']:
@@ -222,7 +282,12 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
                                     except ValueError: pass
                             if extra: followups.append((job['ids'],extra))
                         if job['kind']=='quality':
-                            atomic_json(h.store.path/'quality_review.json',{'status':'COMPLETED','factors':job['ids']})
+                            missing=set(job['ids'])-set(accepted)
+                            atomic_json(h.store.path/'quality_review.json',{
+                                'status':'COMPLETED' if not missing else 'PARTIAL' if accepted else 'FAILED',
+                                'factors':job['ids'],'accepted':accepted,'unresolved':sorted(missing),
+                                'errors':validation_errors,
+                                'verification':'Reference/schema review completed only; expert semantic quality is not certified'})
                 except Exception as error:
                     h.store.event(action='prepared_failure',stage=job['kind'],factors=job['ids'],error=str(error))
                     for fid in job['ids']:
@@ -236,6 +301,7 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=100, *
                         raise  # An unavailable shared server cannot serve later bundles.
                 finally:
                     if job['kind']=='foundation': foundation_done=True
+                    if job['kind']=='quality': h.client.set_deadline(deadline)
                     h.save()
                     atomic_json(h.store.path/'performance.json',metrics.snapshot())
                     for fid in job['ids']: yield event('done',fid)

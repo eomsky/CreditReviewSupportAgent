@@ -27,15 +27,34 @@ def main():
     parser.add_argument('--worker', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--engine', choices=['queued','prepared'], default='queued')
     parser.add_argument('--concurrency', type=int, choices=range(1,5), default=2)
+    parser.add_argument('--fresh-pdf', type=Path,
+                        help='Re-extract this PDF within the same end-to-end deadline')
+    parser.add_argument('--published-at', type=date.fromisoformat, default=date(2026,3,31))
     args = parser.parse_args()
     if not args.worker:
         return supervise(args)
+    metrics = Measurements()
+    revision=subprocess.run(['git','rev-parse','HEAD'],capture_output=True,text=True)
+    configuration={key:os.environ.get(key) for key in (
+        'CREDIT_REVIEW_THINKING','CREDIT_REVIEW_THINKING_BUDGET',
+        'CREDIT_BUNDLE_THINKING','CREDIT_BUNDLE_THINKING_BUDGET',
+        'CREDIT_SEPARATE_REVIEW','CREDIT_FOUNDATION_BINDINGS','CREDIT_PDF_WORKERS')}
     state = json.loads((args.source_run/'state.json').read_text())
-    artifact = next(args.source_run.glob('artifacts/sources_*.json'))
-    sources = from_json(json.dumps(json.loads(artifact.read_text())['payload']).encode())
     client = ColabClient()
     client.check()
-    metrics = Measurements()
+    if args.fresh_pdf:
+        from credit_review.documents import from_pdf_isolated
+        scratch=Path('workspace/benchmarks/fresh_ingestion')/uuid.uuid4().hex
+        preparation_started=monotonic()
+        print('FRESH_PDF_START',str(scratch),flush=True)
+        sources=from_pdf_isolated(args.fresh_pdf,args.published_at,scratch)
+        metrics.record('fresh_pdf_extraction',preparation_started)
+        atomic_json(scratch/'preparation_timing.json',metrics.snapshot())
+        preparation_note='Fresh PDF extraction and index construction included; excludes browser upload and rendering; filesystem/model caches may be warm'
+    else:
+        artifact = next(args.source_run.glob('artifacts/sources_*.json'))
+        sources = from_json(json.dumps(json.loads(artifact.read_text())['payload']).encode())
+        preparation_note='Saved PDF extraction reused; includes preflight/index construction, excludes upload/OCR and browser rendering'
     h = Harness.create(Path('workspace/benchmarks'), 'full', date.fromisoformat(state['review_date']),
                        sources, MeasuredClient(client, metrics))
     h.state.review_strategy = 'grouped'
@@ -80,9 +99,11 @@ def main():
         snapshot = metrics.snapshot()
         atomic_json(h.store.path/'performance.json', snapshot)
         summary = {'source_run':str(args.source_run), 'run':str(h.store.path), 'engine':args.engine,
+            'code_revision':revision.stdout.strip() if revision.returncode==0 else None,
+            'configuration':configuration,
             'model':client.model, 'source_revision':h.state.source_revision,
             'concurrency':args.concurrency,
-            'preparation':'Saved PDF extraction reused; includes index construction, excludes upload/OCR and browser rendering',
+            'preparation':preparation_note,
             'elapsed_seconds':snapshot['elapsed_seconds'], 'first_report_seconds':snapshot['first_report_seconds'],
             'first_final_stream_token_seconds':first_token, 'llm_calls':snapshot['llm_calls'],
             'judgements':sum(bool(f.judgement) for f in h.state.factors.values()),
@@ -105,9 +126,12 @@ def supervise(args):
     log = root/(name+'.log')
     started = monotonic()
     with log.open('w', encoding='utf-8') as out:
-        process = subprocess.Popen([sys.executable, __file__, str(args.source_run),
+        command=[sys.executable, __file__, str(args.source_run),
             '--worker', '--hard-timeout', str(args.hard_timeout), '--engine', args.engine,
-            '--concurrency',str(args.concurrency)], stdout=out, stderr=subprocess.STDOUT,
+            '--concurrency',str(args.concurrency)]
+        if args.fresh_pdf:
+            command.extend(['--fresh-pdf',str(args.fresh_pdf),'--published-at',str(args.published_at)])
+        process = subprocess.Popen(command, stdout=out, stderr=subprocess.STDOUT,
             start_new_session=os.name != 'nt')
         print('WATCHDOG', log, 'limit', args.hard_timeout, flush=True)
         stopped = False

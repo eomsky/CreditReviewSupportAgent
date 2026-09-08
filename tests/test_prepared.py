@@ -7,6 +7,26 @@ from credit_review.prepared_client import alias_context, prepare_financial, revi
 from credit_review.registry import FACTORS
 
 
+def test_compact_shared_page_keeps_exact_scope_text_and_original():
+    from copy import deepcopy
+    from credit_review.prepared_client import compact_page_contexts
+    opening={'source_id':'page1','text':'연결 재무상태표 (단위:천원)','excerpt_only':True}
+    context={'sources':{sid:{'id':sid,'text':sid+' values','document_id':'doc','page':1,
+        'table_index':{'page_opening':opening,'locator':{'source_id':sid,'document_id':'doc','page':1},
+                       'tables':[{'units':['천원']}]}} for sid in ['a','b']}}
+    original=deepcopy(context)
+    compact=compact_page_contexts(context)
+    assert context==original
+    assert compact['page_contexts']=={'page1':opening}
+    for sid in context['sources']:
+        s=compact['sources'][sid]
+        assert s['text']==context['sources'][sid]['text']
+        assert s['table_index']['page_context_id']=='page1'
+        assert s['table_index']['tables']==context['sources'][sid]['table_index']['tables']
+    wire,restore=alias_context(compact)
+    assert json.loads(restore(json.dumps(wire)))==compact
+
+
 def test_aliases_restore_reference_keys_and_lists_without_changing_text():
     value={'sources':{'long_source':{'id':'long_source','text':'long_source appears in prose'}},
            'calculations':{'long_calc':{'result':1}}, 'references':['long_source','long_calc']}
@@ -53,10 +73,96 @@ def test_foundation_wire_pairing_preserves_each_rows_sources():
     class Client:
         def complete(self,prompt,context,schema,request_options):
             assert 'records' in schema['$defs']['Dataset']['properties']
+            plan=schema['$defs']['PreparedDataset']
+            assert 'after_dataset' in plan['required']
+            assert plan['properties']['after_dataset']=={'$ref':'#/$defs/DatasetCalculation'}
             return json.dumps({'datasets':[{'dataset':{
                 'name':'cash','description':'cash','entity':'Example','scope':'CONSOLIDATED',
                 'value_type':'ACTUAL','columns':[{'name':'period','dtype':'string'},{'name':'cash','dtype':'number','unit':'KRW'}],
-                'period_column':'period','records':[{'values':{'period':'2025','cash':10},'sources':{'period':['R1'],'cash':['R1']}}]},
+                'period_column':'period','records':[{'cells':[
+                    {'column':'period','value':'2025','source_ids':['R1']},
+                    {'column':'cash','value':10,'source_ids':['R1']}]}]},
                 'after_dataset':None}], 'limitations':[]})
     reply=json.loads(prepare_financial(Client(),{'sources':{'source_id':{'text':'2025 cash 10 KRW'}}}))
     assert reply['datasets'][0]['dataset']['cell_sources']==[{'period':['source_id'],'cash':['source_id']}]
+
+
+def test_bundle_reference_arrays_cannot_repeat_until_token_limit():
+    class Client:
+        def complete(self,prompt,context,schema,request_options):
+            judgement=schema['$defs']['Judgement']['properties']
+            assert judgement['evidence_ids']['maxItems']==2
+            assert judgement['calculation_ids']['maxItems']==0
+            required=judgement['requirements']
+            assert set(required['properties'])==set(FACTORS['F27']['required_evidence'])
+            assert required['additionalProperties'] is False
+            assert all(p['maxItems']==2 for p in required['properties'].values())
+            assert judgement['missing']['maxItems']==6
+            return '{"findings":[],"requests":[]}'
+    review_bundle(Client(),{'sources':{'a':{},'b':{}},'datasets':{},'calculations':{},
+                            'factors':{'F27':FACTORS['F27']}})
+
+
+def test_initial_numeric_bundle_thinking_is_opt_in_and_separate_from_review(monkeypatch):
+    options=[]
+    class Client:
+        def complete(self,prompt,context,schema,request_options):
+            options.append(request_options)
+            return '{"findings":[],"requests":[]}'
+    monkeypatch.setenv('CREDIT_BUNDLE_THINKING','1')
+    monkeypatch.setenv('CREDIT_BUNDLE_THINKING_BUDGET','1536')
+    monkeypatch.setenv('CREDIT_REVIEW_THINKING','0')
+    for fid,review in [('F14',False),('F02',False),('F14',True)]:
+        review_bundle(Client(),{'sources':{},'datasets':{},'calculations':{},
+                               'factors':{fid:FACTORS[fid]},'review_pass':review})
+    assert [x['chat_template_kwargs']['enable_thinking'] for x in options]==[True,False,False]
+    assert options[0]['thinking_token_budget']==1536
+    assert 'thinking_token_budget' not in options[1]
+
+
+def test_quality_pass_rejection_retains_draft_and_is_not_reported_complete(tmp_path):
+    h=make(tmp_path)
+    class Client:
+        def set_deadline(self,deadline): pass
+        def prepare_financial(self,context): return '{"datasets":[],"limitations":[]}'
+        def review_bundle(self,context):
+            return json.dumps({'findings':[{'factor_id':fid,'judgement':{
+                'summary':'Original supported limitation',
+                'evidence_ids':['nonexistent'] if fid=='F17' and context['review_pass'] else [],
+                'missing':['Sources not provided']}} for fid in context['factors']]})
+    h.client=Client()
+    list(analyse_prepared(h,list(FACTORS),time_budget=30,concurrency=2))
+    review=json.loads((h.store.path/'quality_review.json').read_text())
+    assert review['status']=='PARTIAL'
+    assert review['unresolved']==['F17']
+    assert h.state.factors['F17'].judgement.summary=='Original supported limitation'
+
+
+def test_ordered_bundle_cannot_borrow_another_factors_requirement_keys():
+    class Client:
+        def complete(self,prompt,context,schema,request_options):
+            array=schema['properties']['findings']
+            assert array['items'] is False
+            for item,fid in zip(array['prefixItems'],['F27','F29']):
+                assert item['properties']['factor_id']['enum']==[fid]
+                keys=item['properties']['judgement']['properties']['requirements']['properties']
+                assert set(keys)==set(FACTORS[fid]['required_evidence'])
+            return '{"findings":[],"requests":[]}'
+    review_bundle(Client(),{'sources':{'a':{}},'datasets':{},'calculations':{},
+                            'factors':{fid:FACTORS[fid] for fid in ['F27','F29']}})
+
+
+def test_overall_risk_uses_revised_findings_after_quality_pass(tmp_path):
+    h=make(tmp_path); observed=[]
+    class Client:
+        def set_deadline(self,deadline): pass
+        def prepare_financial(self,context): return '{"datasets":[],"limitations":[]}'
+        def review_bundle(self,context):
+            if list(context['factors'])==['F30']:
+                observed.append(context['prior_findings']['F17']['summary'])
+            return json.dumps({'findings':[{'factor_id':fid,'judgement':{
+                'summary':'Revised liquidity limitation' if context['review_pass'] else 'Initial draft',
+                'evidence_ids':[],'missing':['Limited evidence']}} for fid in context['factors']]})
+    h.client=Client()
+    list(analyse_prepared(h,list(FACTORS),time_budget=30,concurrency=2))
+    assert observed==['Revised liquidity limitation']

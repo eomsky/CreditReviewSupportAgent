@@ -27,6 +27,7 @@ def table_card(row):
                       for u in element.get('units', [])],
         })
     return {'section_path': payload.get('section_path', []), 'tables': tables,
+            'section_context':meta.get('section_context'),
             'page_opening':meta.get('page_opening'),
             'locator': {'source_id': row['id'], 'document_id': row['document_id'],
                         'page': row['page'], 'parent_id': row.get('parent_id')},
@@ -63,6 +64,8 @@ def prompt_source(row, loaded=False):
     source['read_complete'] = loaded
     card = table_card(row)
     if card:
+        from .evidence_scope import explicit_scope
+        source['financial_scope']=explicit_scope(row)
         source['table_index'] = card
         source['values_loaded'] = loaded
         if not loaded:

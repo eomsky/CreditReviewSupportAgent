@@ -34,3 +34,27 @@ def test_adapter_revision_must_match(tmp_path):
     (folder/'adapter_manifest.json').write_text(json.dumps({'base_revision':'wrong','merged':False}))
     with pytest.raises(ValueError,match='revision mismatch'):
         serving.adapter_arguments([f'credit-sft={folder}'])
+
+
+def test_recovery_pins_actual_base_and_tokenizer_before_loading_adapter():
+    old=['vllm','serve',serving.BASE]
+    restored=serving.pinned_base_command(old)
+    assert restored[restored.index('--revision')+1] == serving.REVISION
+    assert restored[restored.index('--tokenizer-revision')+1] == serving.REVISION
+    assert old==['vllm','serve',serving.BASE]
+    assert serving.pinned_base_command(restored)==restored
+    with pytest.raises(ValueError,match='revision mismatch'):
+        serving.pinned_base_command(old+['--revision','different'])
+    with pytest.raises(ValueError,match='revision mismatch'):
+        serving.pinned_base_command(old+['--tokenizer-revision','different'])
+    with pytest.raises(ValueError,match='pinned base'):
+        serving.pinned_base_command(['vllm','serve','other-model'])
+
+
+def test_compact_json_setting_is_an_engine_option_not_request_option():
+    original=['vllm','serve',serving.BASE]
+    command=serving.compact_structured_command(original)
+    assert original==['vllm','serve',serving.BASE]
+    value=json.loads(command[command.index('--structured-outputs-config')+1])
+    assert value=={'backend':'xgrammar','disable_any_whitespace':True}
+    assert serving.compact_structured_command(command)==command

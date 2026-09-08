@@ -62,7 +62,10 @@ sequence length 4,800 and no truncation. Cross-platform line endings change file
 hashes; parsed canonical records were separately verified identical before use.
 The actual tokenized data archive was uploaded to Drive and downloaded for full
 SHA-256 verification. Refinement starts from the bundle adapter at learning rate
-5e-6, with 80 planned steps and a ten-minute training cap.
+5e-6, with 80 planned steps and a ten-minute training cap. All 80 steps completed
+at 19:25:08 UTC in 492.02 seconds, with best validation loss 0.5974601.
+The adapter and a recoverable optimizer checkpoint were uploaded to Drive,
+downloaded, reassembled and verified by SHA-256 and ZIP CRC.
 
 ## Recovery verified
 
@@ -72,10 +75,69 @@ step 120 with optimizer, scheduler and RNG state, retaining the original 192-ste
 learning-rate schedule. It ended as `RECOVERY_SMOKE_COMPLETE` at 19:16:28 UTC.
 The four-stage final checkpoint was also downloaded from Drive and fully verified.
 
-## Remaining acceptance work
+## Actual serving validation and untouched test
+
+The restored vLLM server exposes the base and unmerged adapter names. A two-prompt
+validation run found a full-report adapter looping until its output-token cap;
+that adapter was excluded from the final served test comparison. A refined
+adapter improved format adherence but still produced generic, incomplete analysis.
+
+Four untouched test prompts (one per stage) were then compared with identical
+messages, temperature 0, seed 42, rotated order, separate warmups and a 60-second /
+6,000-output-token limit. Input was 7,172 tokens in total for every model.
+No test result was added to training data or used for another training pass.
+
+| Served model | Normal completion | Exact factor JSON (2 applicable prompts) | Total output tokens | Total seconds |
+| --- | ---: | ---: | ---: | ---: |
+| Base | 4/4 | 0/2 | 2,850 | 22.47 |
+| Bundle adapter | 4/4 | 2/2 | 1,967 | 20.24 |
+| Refined adapter | 4/4 | 2/2 | 1,220 | 12.78 |
+
+This evaluator deliberately does not impose a JSON grammar. Production requests
+do impose one, so the format advantage is not itself a production quality gain.
+The refined adapter emitted 57% fewer tokens than the base. Lower elapsed time
+therefore does not establish higher token throughput or equivalent report depth.
+
+Manual review found hard failures despite zero automatic numeric-membership flags:
+the refined adapter changed a dimensionless support index into a monetary amount
+and changed its definition; the bundle adapter reversed the label of a leverage
+ratio in one section. Both omitted important qualifications in some outputs.
+The base also made unsupported reassurance claims. All three fail the expert
+quality acceptance test on this small diagnostic sample.
+
+## Report-harness comparison and current selection
+
+Before later source-structure corrections, the same cached PDF and concurrency 3
+produced a base run in 113.40 seconds with only 27 factors (one JSON response
+hit the token cap), and a refined-adapter run in 69.23 seconds with 30 factors.
+The latter mixed financial-statement scopes, misstated monetary units and copied
+evaluation instructions into report prose. It is **not** selected on speed alone.
+
+Keep the base as the default and retain the adapters for explicit A/B evaluation.
+Later source-cell and retrieval changes require separate end-to-end validation;
+they do not retroactively make these earlier reports correct.
+
+## Remaining report acceptance work
 
 Compare base and candidate adapters in the actual vLLM server, then run the same
 report harness with a 120-second cap. Evaluate complete report content against
 source material, not only JSON validity or response speed. Keep the base available
 as a selectable model and promote an adapter only if the measured quality warrants
-it. The untouched test split is reserved for the final selected comparison.
+it. The untouched test comparison above is complete; its semantic failures remain
+recorded rather than being hidden by aggregate speed or JSON metrics.
+
+Final restored-server check at code `b249f33`, default concurrency 2 and cached
+sources: refined adapter took 107.65 seconds to terminate with zero valid factor
+judgements. A summary repeated the same sentence to the 6,000-token cap, and the
+foundation dataframe failed provenance validation. First-shape server compilation
+also occurred, but does not explain the repeated content. Base on the same server
+then completed 30 factors and synthesis in 91.20 seconds. The app remains on base;
+this adapter is retained solely for explicit testing and recovery.
+
+The train-only refinement's longest complete tokenized record was 4,800 tokens.
+The latest cached benchmark used individual prompts of 10,684–28,824 tokens for its
+foundation and review stages. This observed distribution difference, together
+with the runtime's dataframe/provenance contracts, should be represented in
+future training and evaluation. It is a hypothesis to investigate, not an
+isolated causal explanation of the repetition or semantic errors. Preserved test
+responses must not become the next training targets.

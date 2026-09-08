@@ -36,7 +36,7 @@ def structured_content(content):
     return content
 
 
-def report_deltas(lines):
+def report_deltas(lines, on_usage=None):
     """OpenAI SSE: expose content only, never reasoning/tool deltas."""
     finished = False
     for line in lines:
@@ -48,6 +48,8 @@ def report_deltas(lines):
                 raise ValueError("Report stream did not finish normally")
             return
         event = json.loads(value)
+        if event.get('usage') and on_usage:
+            on_usage(event['usage'])
         if event.get("error"):
             raise ValueError("Report stream failed")
         for choice in event.get("choices", []):
@@ -101,8 +103,7 @@ class ColabClient:
         with httpx.Client(timeout=self.request_timeout()) as client:
             response = client.post(self.base_url + "/chat/completions", headers=headers,
                 json={"model": self.model, "temperature": 0.1, "max_tokens": 6000,
-                      "structured_outputs": {**({'json':schema} if schema else {'json_object':True}),
-                                             'disable_any_whitespace':True},
+                      "structured_outputs": {'json':schema} if schema else {'json_object':True},
                       "messages": [{"role": "system", "content": system},
                                    {"role": "user", "content": serialized}], **(request_options or {})})
             if response.status_code == 400:
@@ -245,7 +246,7 @@ class ColabClient:
         schema['$defs']['FactorAction'] = {'anyOf':factor_choices}
         return unpack_dataset_rows(self.complete(prompt, context, schema,
             request_options={'chat_template_kwargs':{'enable_thinking':False}, 'response_format':None,
-                             'structured_outputs':{'json':schema, 'disable_any_whitespace':True}}))
+                             'structured_outputs':{'json':schema}}))
 
     def stream_report(self, context):
         prompt = ('확보된 분석을 기업여신 심사보고서 본문으로 편집한다. 한국어 Markdown 문단과 필요한 표만 출력한다. '
@@ -262,11 +263,12 @@ class ColabClient:
         with httpx.Client(timeout=self.request_timeout()) as client:
             with client.stream("POST", self.base_url + "/chat/completions",
                 headers={"Authorization": f"Bearer {self.key}"}, json={
-                    "model": self.model, "stream": True, "temperature": 0.1, "max_tokens": 2500,
+                    "model": self.model, "stream": True, "stream_options":{"include_usage":True},
+                    "temperature": 0.1, "max_tokens": 2500,
                     "chat_template_kwargs": {"enable_thinking": False},
                     "messages": [{"role": "system", "content": prompt}, {"role": "user", "content": serialized}]}) as response:
                 response.raise_for_status()
-                yield from report_deltas(response.iter_lines())
+                yield from report_deltas(response.iter_lines(),getattr(self,'_usage_observer',None))
 
     def synthesize(self, context: dict) -> str:
         return self.complete(

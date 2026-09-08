@@ -9,6 +9,25 @@ from credit_review.parallel import analyse_factors, run_lease, CachedTools, Meas
 from test_harness import make
 
 
+def test_interleaved_usage_is_linked_to_its_own_request():
+    from concurrent.futures import ThreadPoolExecutor
+    metrics=Measurements(); barrier=Barrier(2)
+    def run(kind,tokens):
+        token=metrics.begin(kind)
+        barrier.wait(timeout=2)
+        metrics.record_usage({'prompt_tokens':tokens,'completion_tokens':tokens+1})
+        metrics.finish(token)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        a=pool.submit(run,'llm_first',10); b=pool.submit(run,'llm_second',20)
+        a.result(); b.result()
+    result=metrics.snapshot()
+    operations={r['call_id']:r['kind'] for r in result['operations']}
+    assert len(operations)==2
+    for usage in result['token_usage']:
+        assert operations[usage['call_id']]==usage['kind']
+        assert usage['prompt_tokens']==(10 if usage['kind']=='llm_first' else 20)
+
+
 def test_prefetch_gives_candidates_without_judgement_or_llm_step(tmp_path):
     h = make(tmp_path)
     h.prepare_evidence('F01')

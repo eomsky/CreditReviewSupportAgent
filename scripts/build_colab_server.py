@@ -3,12 +3,13 @@ import json
 from pathlib import Path
 
 CHECK = '''# 1. A100 80GB 확인 및 모델 설정
-import os, sys, subprocess, shutil, time, json, secrets, re
+import os, sys, subprocess, shutil, time, json, secrets, re, signal
 from pathlib import Path
 from urllib.request import Request, urlopen, urlretrieve
 from google.colab import userdata
 
 MODEL_ID = "google/gemma-4-26B-A4B-it"
+MODEL_REVISION = "4d7ae4984b7db7de8f8457170b3f1a419ee76d52"
 CONTEXT_TOKENS = 49152  # input + output; request budget reserves 6000 output tokens
 PORT = 8001
 ROOT = Path("/content/credit_llm_server")
@@ -65,26 +66,34 @@ if globals().get("server") and server.poll() is None:
     active_model = next(m for m in call("/v1/models")["data"] if m["id"] == MODEL_ID)
     if active_model.get("max_model_len") != CONTEXT_TOKENS:
         print("문맥 한도 변경을 위해 LLM 서버를 재시작합니다.", flush=True)
-        server.terminate()
+        os.killpg(server.pid, signal.SIGTERM)
         try:
             server.wait(timeout=30)
         except subprocess.TimeoutExpired:
-            server.kill()
+            os.killpg(server.pid, signal.SIGKILL)
             server.wait(timeout=10)
 if not globals().get("server") or server.poll() is not None:
     log = (ROOT / "vllm.log").open("w")
-    server = subprocess.Popen([
+    base_command = [
         str(env / "bin/vllm"), "serve", MODEL_ID,
+        "--revision", MODEL_REVISION,
         "--host", "127.0.0.1", "--port", str(PORT), "--api-key", API_KEY,
         "--served-model-name", MODEL_ID, "--dtype", "bfloat16",
         "--reasoning-parser", "gemma4",
+        "--structured-outputs-config", '{"backend":"xgrammar","disable_any_whitespace":true}',
         "--gpu-memory-utilization", "0.90", "--max-model-len", str(CONTEXT_TOKENS),
         "--max-num-seqs", "4", "--max-num-batched-tokens", "8192",
         "--enable-prefix-caching", "--limit-mm-per-prompt", '{"image":0,"video":0,"audio":0}'
-    ], stdout=log, stderr=subprocess.STDOUT, env=os.environ.copy(), start_new_session=True)
+    ]
+    # Private recovery command; credentials must never enter Git or Drive backups.
+    restore_file = ROOT / "restore_args.json"
+    restore_file.write_text(json.dumps(base_command))
+    restore_file.chmod(0o600)
+    server = subprocess.Popen(base_command, stdout=log, stderr=subprocess.STDOUT,
+                              env=os.environ.copy(), start_new_session=True)
     for attempt in range(180):
         if server.poll() is not None:
-            raise RuntimeError((ROOT / "vllm.log").read_text(errors="replace")[-6000:])
+            raise RuntimeError((ROOT / "vllm.log").read_text(errors="replace")[-6000:].replace(API_KEY, "[REDACTED]"))
         try:
             call("/v1/models")
             break

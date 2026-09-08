@@ -5,6 +5,16 @@ from credit_review.models import Action
 from credit_review.llm import report_deltas
 
 
+def test_usage_only_sse_event_is_recorded_without_report_text():
+    usage=[]
+    lines=['data: '+json.dumps({'choices':[{'delta':{'content':'본문'},'finish_reason':None}]}),
+           'data: '+json.dumps({'choices':[{'delta':{},'finish_reason':'stop'}]}),
+           'data: '+json.dumps({'choices':[],'usage':{'completion_tokens':2,'prompt_tokens':10}}),
+           'data: [DONE]']
+    assert ''.join(report_deltas(lines,usage.append))=='본문'
+    assert usage==[{'completion_tokens':2,'prompt_tokens':10}]
+
+
 def inquiry(question="Can cash cover maturities?"):
     return dict(question=question, hypotheses=["Cash is insufficient"],
                 evidence_tests=["Compare cash with debt maturities"], change_reason="Test repayment ability")

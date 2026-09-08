@@ -11,13 +11,15 @@ def main():
     parser=argparse.ArgumentParser(); parser.add_argument('pdf',type=Path)
     parser.add_argument('output',type=Path); parser.add_argument('--master',type=Path)
     parser.add_argument('--cached-builder',action='store_true')
+    parser.add_argument('--workers',type=int,choices=range(1,5),default=1)
     args=parser.parse_args(); args.output.mkdir(parents=True,exist_ok=True)
     timings={}; start=perf_counter()
     if args.master:
         raw=json.loads(args.master.read_text(encoding='utf-8'))['raw_document']
         timings['raw_reused']=True
     else:
-        raw=PDFExtractor().extract(str(args.pdf))
+        from credit_review.pdf_parallel import extract_raw
+        raw=extract_raw(args.pdf,args.workers)
         timings['raw_reused']=False
     timings['raw_seconds']=perf_counter()-start
     print('RAW',json.dumps(timings),flush=True)

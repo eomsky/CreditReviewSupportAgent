@@ -3,7 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from copy import deepcopy
 from queue import Queue, Empty
-from threading import Event, Lock
+from threading import Event, Lock, get_ident
 from time import monotonic
 import hashlib
 
@@ -34,30 +34,40 @@ class Measurements:
         self.records = []
         self.inflight = {}
         self.sequence = 0
+        self.thread_calls = {}
         self.usage = []
         self.first_report_seconds = None
 
-    def record(self, kind, started, cached=False):
+    def record(self, kind, started, cached=False, call_id=None):
         with self.lock:
             ended = monotonic()
             self.records.append({'kind': kind, 'seconds': ended-started, 'cached': cached,
-                'started_seconds':started-self.started, 'ended_seconds':ended-self.started})
+                'started_seconds':started-self.started, 'ended_seconds':ended-self.started,
+                **({'call_id':call_id} if call_id is not None else {})})
 
     def begin(self, kind):
         with self.lock:
             self.sequence += 1
             self.inflight[self.sequence] = (kind, monotonic())
+            self.thread_calls[get_ident()] = self.sequence
             return self.sequence
 
     def finish(self, token):
         with self.lock:
             kind, started = self.inflight.pop(token)
-        self.record(kind, started)
+            if self.thread_calls.get(get_ident())==token:
+                self.thread_calls.pop(get_ident())
+        self.record(kind, started,call_id=token)
 
     def record_usage(self, usage):
         with self.lock:
-            self.usage.append({k:usage.get(k) for k in
-                ('prompt_tokens','completion_tokens','total_tokens')})
+            token=self.thread_calls.get(get_ident())
+            current=self.inflight.get(token)
+            self.usage.append({**{k:usage.get(k) for k in
+                ('prompt_tokens','completion_tokens','total_tokens')},
+                'call_id':token,'kind':current[0] if current else None,
+                'reasoning_tokens':(usage.get('completion_tokens_details') or {}).get('reasoning_tokens'),
+                'received_seconds':monotonic()-self.started})
 
     def snapshot(self):
         with self.lock:
@@ -124,11 +134,11 @@ class MeasuredClient:
         return self._call('review_bundle', context)
 
     def stream_report(self, context):
-        started = monotonic()
+        token=self.metrics.begin('llm_stream_report')
         try:
             yield from self.client.stream_report(context)
         finally:
-            self.metrics.record('llm_stream_report', started)
+            self.metrics.finish(token)
 
 
 class CachedTools:
