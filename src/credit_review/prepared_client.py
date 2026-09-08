@@ -263,7 +263,7 @@ def review_bundle(client, context):
 
 
 def review_monetary_report(client, context):
-    """Ninth and final call: return minimal, path-bound amount corrections only."""
+    """Tenth and final call: return minimal, path-bound amount corrections only."""
     schema = MonetaryReview.model_json_schema()
     allowed = list(context.get('allowed_paths', []))
     schema['$defs']['MonetaryEdit']['properties']['path'] = {

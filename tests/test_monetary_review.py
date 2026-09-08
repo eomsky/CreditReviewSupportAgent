@@ -50,3 +50,7 @@ def test_invalid_output_unit_or_decimal_is_rejected(tmp_path, new):
             }]}, ensure_ascii=False)
     with pytest.raises(ValueError, match='no valid amount-only edits'):
         run_monetary_review(Harness(), Client(), report)
+    failure = json.loads((tmp_path/'monetary_review_failure.json').read_text(encoding='utf-8'))
+    assert failure['status'] == 'FAILED'
+    assert failure['rejected_edits'][0]['new'] == new
+    assert (tmp_path/'monetary_review_raw.txt').exists()

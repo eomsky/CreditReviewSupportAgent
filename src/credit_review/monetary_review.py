@@ -182,10 +182,30 @@ def run_monetary_review(h, client, report: dict):
             return existing
     available = text_paths(base)
     raw = client.review_monetary_report({"report": base, "allowed_paths": sorted(available)})
-    review = MonetaryReview.model_validate_json(raw)
+    # Keep the exact response when validation fails so the final audit can be
+    # diagnosed and resumed without regenerating the completed report body.
+    raw_path = h.store.path / "monetary_review_raw.txt"
+    raw_path.write_text(raw, encoding="utf-8")
+    try:
+        review = MonetaryReview.model_validate_json(raw)
+    except Exception as exc:
+        atomic_json(h.store.path / "monetary_review_failure.json", {
+            "status": "FAILED",
+            "input_fingerprint": fingerprint,
+            "error": str(exc),
+            "raw_response": raw[:12000],
+        })
+        raise
     accepted = [edit for edit in review.edits
                 if edit.path in available and _valid_edit(edit, available[edit.path])]
     if review.edits and not accepted:
+        atomic_json(h.store.path / "monetary_review_failure.json", {
+            "status": "FAILED",
+            "input_fingerprint": fingerprint,
+            "error": "Monetary review returned no valid amount-only edits",
+            "raw_response": raw[:12000],
+            "rejected_edits": [edit.model_dump() for edit in review.edits],
+        })
         raise ValueError("Monetary review returned no valid amount-only edits")
     candidate = {
         "status": "COMPLETED",
@@ -196,4 +216,5 @@ def run_monetary_review(h, client, report: dict):
     # Force overlap and occurrence validation before recording the audit.
     text_paths(revised)
     atomic_json(path, candidate)
+    (h.store.path / "monetary_review_failure.json").unlink(missing_ok=True)
     return candidate
