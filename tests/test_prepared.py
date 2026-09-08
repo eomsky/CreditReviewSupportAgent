@@ -177,8 +177,10 @@ def test_every_single_pass_section_receives_reference_report_prompt():
         assert f"【{section['number']}." in prompt
         assert '심사자는 단순 요약자가 아니라 여신 판단의 책임 주체임' in prompt
         assert '모든 문장 어미는' in prompt
-        assert '요인당 4~7문장을 사용한다' in prompt
+        assert '요인당 3~5문장을 사용한다' in prompt
+        assert '내부 근거 ID는 evidence_ids에만 기록' in prompt
     assert '914,339,580천원을 9.14억원으로 축약하지 않으며' in prompts[5]
+    assert '각 소제목을 중복 없이 3~4문장으로 완결' in prompts[4]
     assert '승인·조건부 승인·감액·만기조정·보류·부결' in prompts[6]
 
 
