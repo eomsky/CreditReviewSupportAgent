@@ -4,7 +4,12 @@ import os
 from copy import deepcopy
 from .prepared import Foundation, BundleReview
 from .batch_protocol import cell_dataset_schema, unpack_cell_records
-from .section_prompts import GLOBAL_REPORT_STYLE_PROMPT, SECTION_REPORT_PROMPTS, SECTION_CALL_PROMPTS
+from .section_prompts import (
+    GLOBAL_REPORT_STYLE_PROMPT,
+    SECTION_REPORT_PROMPTS,
+    SECTION_CALL_PROMPTS,
+    SECTION_COVERAGE_PROMPTS,
+)
 
 
 def alias_context(context):
@@ -202,6 +207,7 @@ def review_bundle(client, context):
         +GLOBAL_REPORT_STYLE_PROMPT
         +SECTION_REPORT_PROMPTS.get(section_number, '')
         +SECTION_CALL_PROMPTS.get(section_call_id, '')
+        +SECTION_COVERAGE_PROMPTS.get(section_call_id, '')
         if context.get('single_pass') else '')
     prompt = (
         section_instruction+
@@ -229,7 +235,8 @@ def review_bundle(client, context):
         '이미 작성된 초안은 검증된 사실이 아니다. 연결 공통 데이터와 개별 별도 수치가 다르면 범위를 구분한다. '
         '공통 datasets에 있는 동일 차주·기간·항목의 수치를 다른 범위의 표 수치로 대체하지 않는다. 연결 영업이익과 별도 영업이익을 뒤바꾸지 않는다. '
         'requirements는 실제 그 요건을 뒷받침하는 출처만 넣는다. missing/conflicts는 내부 보존하되 '
-        '판단에 중요한 불확실성은 summary에도 자연스럽게 드러낸다. 목차별 작성기준을 우선하며 요인당 3~5문장을 사용한다. '
+        '판단에 중요한 불확실성은 summary에도 자연스럽게 드러낸다. 목차별 작성기준을 우선하며 기본적으로 요인당 3~5문장을 사용하되, '
+        '소제목 책임 배분에서 별도 종합 문단을 지정한 경우에는 그 문단 길이 지시를 추가로 적용한다. '
         'single_pass가 아니면서 추가 원문이 결론을 실질적으로 바꿀 때에만 requests에 묶음 요청을 최대 3개 넣는다. '
         'single_pass에서는 추가 호출을 요청하지 말고 미확인 사항을 missing과 summary의 조건으로 보존한다. '
         '다른 파트 prior_findings와 공유 datasets/calculations에서 해결 가능한 내용은 재사용한다. '

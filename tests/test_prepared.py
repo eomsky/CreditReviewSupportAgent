@@ -8,7 +8,12 @@ from credit_review.models import Judgement
 from credit_review.prepared_client import alias_context, prepare_financial, review_bundle
 from credit_review.registry import FACTORS
 from credit_review.report_plan import REPORT_SECTIONS, REPORT_SECTION_CALLS, REPORT_FACTOR_ORDER, REPORT_CALL_FACTOR_ORDER
-from credit_review.section_prompts import GLOBAL_REPORT_STYLE_PROMPT, SECTION_REPORT_PROMPTS, SECTION_CALL_PROMPTS
+from credit_review.section_prompts import (
+    GLOBAL_REPORT_STYLE_PROMPT,
+    SECTION_REPORT_PROMPTS,
+    SECTION_CALL_PROMPTS,
+    SECTION_COVERAGE_PROMPTS,
+)
 
 
 def test_compact_shared_page_keeps_exact_scope_text_and_original():
@@ -177,11 +182,14 @@ def test_every_single_pass_section_receives_reference_report_prompt():
         prompt=prompts[section['call_id']]['prompt']
         assert GLOBAL_REPORT_STYLE_PROMPT in prompt
         assert SECTION_REPORT_PROMPTS[section['number']] in prompt
+        assert SECTION_COVERAGE_PROMPTS[section['call_id']] in prompt
         assert f"【{section['number']}." in prompt
         assert '심사자는 단순 요약자가 아니라 여신 판단의 책임 주체임' in prompt
         assert '모든 문장 어미는' in prompt
-        assert '요인당 3~5문장을 사용한다' in prompt
+        assert '기본적으로 요인당 3~5문장을 사용하되' in prompt
         assert '내부 근거 ID는 evidence_ids에만 기록' in prompt
+        assert 'summary는 핵심 사실·분석·판단을 담고' in prompt
+        assert '목차별 필수 소제목 누락 여부를 스스로 점검' in prompt
     assert SECTION_CALL_PROMPTS['05a'] in prompts['05a']['prompt']
     assert SECTION_CALL_PROMPTS['05b'] in prompts['05b']['prompt']
     assert prompts['05a']['options']['max_tokens']==3500
@@ -191,6 +199,9 @@ def test_every_single_pass_section_receives_reference_report_prompt():
     assert '투자활동 순현금유출을 CAPEX와 동일시하지 않음' in prompts['05b']['prompt']
     assert '914,339,580천원을 9.14억원으로 축약하지 않으며' in prompts['06']['prompt']
     assert '승인·조건부 승인·감액·만기조정·보류·부결' in prompts['07']['prompt']
+    assert 'F25 summary 끝에는 줄을 바꾸어 “종합심사의견:”' in prompts['07']['prompt']
+    assert 'F27 summary는 신청내용→신청배경→자금용도를 순서대로 모두 포함함' in prompts['02']['prompt']
+    assert 'F10은 수요·공급·가격 변동·주요 매출처' in prompts['03']['prompt']
 
 
 def test_initial_numeric_bundle_thinking_is_opt_in_and_separate_from_review(monkeypatch):
