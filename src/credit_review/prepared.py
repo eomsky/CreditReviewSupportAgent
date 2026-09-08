@@ -1,4 +1,5 @@
-"""Evidence-first review with one sequential LLM call per report section."""
+"""Evidence-first review with one dependency-aware LLM call per report section."""
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 from time import monotonic
 from pydantic import Field
@@ -9,6 +10,12 @@ from .table_access import prompt_source, table_card
 from .parallel import Measurements
 from .store import atomic_json
 from .report_plan import REPORT_SECTIONS
+
+
+# Independent source reviews run together.  Risk and repayment then receive the
+# completed business/finance findings, and the final section receives every
+# earlier conclusion.  This preserves report coherence while reducing wall time.
+SECTION_WAVES = ((1, 2, 3, 5), (4, 6), (7,))
 
 NUMERIC_INPUTS = ['F13','F14','F15','F16','F17','F18','F21','F22']
 DISCOVERY = {
@@ -170,8 +177,8 @@ def review_context(h, ids, extra=None):
     return context
 
 
-def analyse_prepared(h, targets, concurrency=1, metrics=None, time_budget=900, **kwargs):
-    """Visit seven report sections once, in display order, with exactly one LLM call each.
+def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=900, **kwargs):
+    """Visit seven report sections once in dependency waves, one LLM call each.
 
     Retrieval and projection are local. A section attempt marker is written before
     the call, so a resume continues with the next untouched section instead of
@@ -189,80 +196,93 @@ def analyse_prepared(h, targets, concurrency=1, metrics=None, time_budget=900, *
             'total': len(targets), 'metrics': metrics.snapshot(),
         }
 
-    for section in REPORT_SECTIONS:
-        ids = [fid for fid in section['factor_ids'] if fid in target_set]
-        if not ids:
-            continue
-        marker = h.store.path / f"section_{section['number']:02d}_attempt.json"
-        # Old completed/failed state and new attempt markers both prevent a second inference.
-        if marker.exists() or all(h.state.factors[fid].judgement or h.state.factors[fid].error for fid in ids):
-            continue
-        if monotonic() >= deadline:
-            raise TimeoutError('Sequential section review reached its analysis deadline')
+    by_number = {section['number']: section for section in REPORT_SECTIONS}
+    slots = max(1, min(2, int(concurrency)))
+    with ThreadPoolExecutor(max_workers=slots, thread_name_prefix='credit-section') as pool:
+        for wave_numbers in SECTION_WAVES:
+            jobs = []
+            for number in wave_numbers:
+                section = by_number[number]
+                ids = [fid for fid in section['factor_ids'] if fid in target_set]
+                if not ids:
+                    continue
+                marker = h.store.path / f"section_{section['number']:02d}_attempt.json"
+                # Completed, failed, and submitted markers all prevent re-inference.
+                if marker.exists() or all(h.state.factors[fid].judgement or h.state.factors[fid].error for fid in ids):
+                    continue
+                if monotonic() >= deadline:
+                    raise TimeoutError('Section review reached its analysis deadline')
 
-        context = review_context(h, ids)
-        context.update({
-            'single_pass': True,
-            'report_section': {
-                'number': section['number'], 'title': section['title'],
-                'blocks': list(section['blocks']),
-            },
-        })
-        parent = h.store.put(f"section_{section['number']:02d}_input", context)
-        atomic_json(marker, {
-            'status': 'SUBMITTED', 'section': section['title'],
-            'factor_ids': ids, 'input_artifact_id': parent,
-        })
-        h.save()
-        for fid in ids:
-            yield event('status', fid, {
-                'action': 'review',
-                'question': f"{section['number']}. {section['title']} 목차 작성",
-            }, ids)
-
-        try:
-            raw = h.client.review_bundle(context)
-            output = h.store.put(f"section_{section['number']:02d}_output", {'raw': raw}, [parent])
-            reply = BundleReview.model_validate_json(raw)
-            seen = set()
-            for finding in reply.findings:
-                fid = finding.factor_id
-                if fid not in ids or fid in seen:
-                    raise ValueError('Duplicate or unexpected factor in section response')
-                seen.add(fid)
-                try:
-                    h.apply(fid, Action(action='conclude', reason='Single-pass section judgement',
-                                        judgement=finding.judgement), output)
-                    h.state.factors[fid].error = None
-                    h.state.factors[fid].steps += 1
-                    if metrics.first_report_seconds is None:
-                        metrics.first_report_seconds = monotonic() - metrics.started
-                    yield event('state', fid, h.state.factors[fid].model_copy(deep=True), ids)
-                except ValueError as error:
-                    h.state.factors[fid].error = str(error)
-                    h.store.event(action='section_validation', factor_id=fid, error=str(error))
-            missing = set(ids) - seen
-            for fid in missing:
-                h.state.factors[fid].error = 'Section response omitted this factor'
-            atomic_json(marker, {
-                'status': 'COMPLETED' if not missing else 'PARTIAL',
-                'section': section['title'], 'factor_ids': ids,
-                'accepted_factor_ids': sorted(seen - missing), 'output_artifact_id': output,
-            })
-        except Exception as error:
-            h.store.event(action='section_failure', stage=section['title'], factors=ids, error=str(error))
-            for fid in ids:
-                if not h.state.factors[fid].judgement:
-                    h.state.factors[fid].error = str(error)[:1000]
-            atomic_json(marker, {
-                'status': 'FAILED', 'section': section['title'],
-                'factor_ids': ids, 'error': str(error)[:1000],
-            })
-        finally:
+                # Context construction remains on the single writer.  Members of a
+                # wave share the same completed prior waves, never partial peer state.
+                context = review_context(h, ids)
+                context.update({
+                    'single_pass': True,
+                    'report_section': {
+                        'number': section['number'], 'title': section['title'],
+                        'blocks': list(section['blocks']),
+                    },
+                })
+                parent = h.store.put(f"section_{section['number']:02d}_input", context)
+                atomic_json(marker, {
+                    'status': 'SUBMITTED', 'section': section['title'],
+                    'factor_ids': ids, 'input_artifact_id': parent,
+                })
+                jobs.append((section, ids, marker, parent, context))
+                for fid in ids:
+                    yield event('status', fid, {
+                        'action': 'review',
+                        'question': f"{section['number']}. {section['title']} 목차 작성",
+                    }, ids)
             h.save()
-            atomic_json(h.store.path/'performance.json', metrics.snapshot())
-            for fid in ids:
-                yield event('done', fid, active=ids)
+
+            futures = {pool.submit(h.client.review_bundle, context): (section, ids, marker, parent)
+                       for section, ids, marker, parent, context in jobs}
+            for future in as_completed(futures):
+                section, ids, marker, parent = futures[future]
+                try:
+                    raw = future.result()
+                    output = h.store.put(f"section_{section['number']:02d}_output", {'raw': raw}, [parent])
+                    reply = BundleReview.model_validate_json(raw)
+                    seen = set()
+                    for finding in reply.findings:
+                        fid = finding.factor_id
+                        if fid not in ids or fid in seen:
+                            raise ValueError('Duplicate or unexpected factor in section response')
+                        seen.add(fid)
+                        try:
+                            h.apply(fid, Action(action='conclude', reason='Single-pass section judgement',
+                                                judgement=finding.judgement), output)
+                            h.state.factors[fid].error = None
+                            h.state.factors[fid].steps += 1
+                            if metrics.first_report_seconds is None:
+                                metrics.first_report_seconds = monotonic() - metrics.started
+                            yield event('state', fid, h.state.factors[fid].model_copy(deep=True), ids)
+                        except ValueError as error:
+                            h.state.factors[fid].error = str(error)
+                            h.store.event(action='section_validation', factor_id=fid, error=str(error))
+                    missing = set(ids) - seen
+                    for fid in missing:
+                        h.state.factors[fid].error = 'Section response omitted this factor'
+                    atomic_json(marker, {
+                        'status': 'COMPLETED' if not missing else 'PARTIAL',
+                        'section': section['title'], 'factor_ids': ids,
+                        'accepted_factor_ids': sorted(seen - missing), 'output_artifact_id': output,
+                    })
+                except Exception as error:
+                    h.store.event(action='section_failure', stage=section['title'], factors=ids, error=str(error))
+                    for fid in ids:
+                        if not h.state.factors[fid].judgement:
+                            h.state.factors[fid].error = str(error)[:1000]
+                    atomic_json(marker, {
+                        'status': 'FAILED', 'section': section['title'],
+                        'factor_ids': ids, 'error': str(error)[:1000],
+                    })
+                finally:
+                    h.save()
+                    atomic_json(h.store.path/'performance.json', metrics.snapshot())
+                    for fid in ids:
+                        yield event('done', fid, active=ids)
 
     h.save()
     atomic_json(h.store.path/'performance.json', metrics.snapshot())

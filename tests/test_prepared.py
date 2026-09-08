@@ -1,5 +1,7 @@
 import json
 import pytest
+from threading import Lock
+from time import sleep
 from test_harness import make
 from credit_review.prepared import analyse_prepared, evidence_pack, review_context
 from credit_review.models import Judgement
@@ -39,7 +41,7 @@ def test_aliases_restore_reference_keys_and_lists_without_changing_text():
 
 
 @pytest.mark.parametrize('concurrency',[1,2,4])
-def test_report_sections_are_called_once_in_display_order(tmp_path,concurrency):
+def test_report_sections_are_called_once_in_dependency_waves(tmp_path,concurrency):
     h=make(tmp_path)
     calls=[]
     class Client:
@@ -53,13 +55,46 @@ def test_report_sections_are_called_once_in_display_order(tmp_path,concurrency):
                 'evidence_ids':[], 'missing':['financial and contractual evidence']}} for fid in ids], 'requests':[]})
     h.client=Client()
     events=list(analyse_prepared(h,list(FACTORS),time_budget=10,concurrency=concurrency))
-    assert calls==[section['title'] for section in REPORT_SECTIONS]
     assert len(calls)==len(REPORT_SECTIONS)==7
+    assert set(calls)=={section['title'] for section in REPORT_SECTIONS}
+    assert set(calls[:4])=={'업체현황','여신 개요 및 신청 사유','사업 분석','재무 분석'}
+    assert set(calls[4:6])=={'주요 리스크 분석','상환재원'}
+    assert calls[6]=='특이사항'
     assert all(f.judgement for f in h.state.factors.values())
     assert all(f.status=='PARTIALLY_FULFILLED' for f in h.state.factors.values())
     assert any(e['kind']=='state' for e in events)
     assert not list(h.store.path.glob('quality_review.json'))
     assert not list((h.store.path/'artifacts').glob('prepared_foundation_input_*.json'))
+
+
+def test_parallel_sections_overlap_and_later_waves_receive_prior_findings(tmp_path):
+    h=make(tmp_path)
+    guard=Lock()
+    active=0
+    maximum=0
+    received={}
+    class Client:
+        def set_deadline(self,deadline): pass
+        def review_bundle(self,context):
+            nonlocal active,maximum
+            number=context['report_section']['number']
+            received[number]=set(context['prior_findings'])
+            with guard:
+                active+=1
+                maximum=max(maximum,active)
+            sleep(.03)
+            with guard:
+                active-=1
+            return json.dumps({'findings':[{'factor_id':fid,'judgement':{
+                'summary':'근거 범위에서 조건부 취급이 타당함.',
+                'evidence_ids':[], 'missing':['추가 확인 필요함']}} for fid in context['factors']], 'requests':[]})
+    h.client=Client()
+    list(analyse_prepared(h,list(FACTORS),time_budget=10,concurrency=2))
+    assert maximum==2
+    assert received[1]==received[2]==received[3]==received[5]==set()
+    assert {'F06','F13'} <= received[4]
+    assert {'F27','F13'} <= received[6]
+    assert {'F30','F24'} <= received[7]
 
 
 def test_delivered_sources_are_complete_and_respect_budget(tmp_path):
@@ -178,9 +213,9 @@ def test_failed_section_is_not_reinferred_on_resume(tmp_path):
                 'missing':['Sources not provided']}} for fid in context['factors']]})
     h.client=Client()
     list(analyse_prepared(h,list(FACTORS),time_budget=30,concurrency=2))
-    assert calls==list(range(1,8))
+    assert len(calls)==7 and set(calls)==set(range(1,8))
     list(analyse_prepared(h,list(FACTORS),time_budget=30,concurrency=2))
-    assert calls==list(range(1,8))
+    assert len(calls)==7 and set(calls)==set(range(1,8))
     assert json.loads((h.store.path/'section_01_attempt.json').read_text(encoding='utf-8'))['status']=='FAILED'
 
 

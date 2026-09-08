@@ -307,12 +307,12 @@ if start or resume:
         targets = ["F24"] if h.state.mode == "DEMO" else list(FACTORS)
         with st.spinner("심사보고서를 작성하고 있습니다."):
             questions = {}
-            # LIVE runs visit the seven visible report sections once, in order.
+            # LIVE runs use dependency-aware waves with one call per section.
             if live:
-                h.state.review_strategy = 'sequential_sections'
+                h.state.review_strategy = 'hybrid_sections'
                 h.save()
             engine = analyse_prepared if live else analyse_factors
-            for event in engine(h, targets, concurrency=1, metrics=metrics,
+            for event in engine(h, targets, concurrency=int(os.environ.get('CREDIT_SECTION_CONCURRENCY','2')), metrics=metrics,
                                 **({'time_budget':int(os.environ.get('CREDIT_ANALYSIS_TIME_BUDGET','900'))} if live else {})):
                 kind, fid = event['kind'], event.get('factor_id')
                 if kind == 'status':
