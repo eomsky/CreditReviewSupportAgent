@@ -163,4 +163,4 @@ class ReviewState(Model):
     factors: dict[str, FactorState]
     generation_status: str = "BLOCKED"
     report_id: str | None = None
-    review_strategy: Literal['adaptive', 'grouped'] = 'adaptive'
+    review_strategy: Literal['adaptive', 'grouped', 'sequential_sections'] = 'adaptive'

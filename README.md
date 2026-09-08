@@ -13,14 +13,14 @@ python -m streamlit run app/workbench.py --server.address 0.0.0.0
 ```
 
 Codespaces Ports → 8501 → Open in Browser. 포트는 Private으로 유지합니다.
-자료 업로드 후 **분석 시작**을 누르면 요인별 분석과 계산을 거쳐 심사보고서를 작성합니다. 화면과 다운로드에는 보고서 본문·표만 표시하며 누락/충돌/coverage/실행 기록은 내부 JSON에 보존합니다. 생성 전 LLM 연결을 확인하며 연결 실패를 분석 완료로 표시하지 않습니다.
+자료 업로드 후 **분석 시작**을 누르면 [기준 심사보고서 목차](docs/REFERENCE_REPORT_BLUEPRINT.md)의 7개 목차를 처음부터 끝까지 순차 작성합니다. **목차 하나당 LLM을 한 번 호출하므로 전체 보고서는 7회 호출**하며, 재추론·후속 근거 요청·별도 품질검토·최종 종합 호출은 하지 않습니다. 화면과 다운로드에는 보고서 본문·표만 표시하며 누락/충돌/coverage/실행 기록은 내부 JSON에 보존합니다. 생성 전 LLM 연결을 확인하며 연결 실패를 분석 완료로 표시하지 않습니다.
 기존에 저장된 DEMO 보고서는 가상 자료와 사전 정의 JSON으로 만든 예시입니다. 실제 LLM 분석이 아닙니다.
 
 ## Colab 연결
 
 실행 전 Codespaces 환경에 `LLM_BASE_URL` (끝에 /v1), `LLM_MODEL`, `LLM_API_KEY`를 설정합니다.
 `.env.example`은 예시이며 자동 로드되지 않습니다. 키는 Git에 저장하지 않습니다.
-기본 화면은 prepared 엔진을 사용합니다. 원문을 구조화하고 공통 재무 데이터프레임과 Python 계산을 만든 뒤 요인을 묶어 분석하고 보고서를 스트리밍합니다. 별도 queued 엔진에는 search/read/dataset/calculate/conclude action 루프가 있습니다. prepared 엔진에 모든 요인별 동적 계산 루프가 통합된 것은 아닙니다.
+기본 화면은 prepared 엔진을 사용합니다. 원문 구조화·근거 검색·계산 결과 준비는 로컬 코드에서 처리하고, LLM은 고정 목차 7개를 순서대로 한 번씩 작성합니다. 별도 queued 엔진에는 search/read/dataset/calculate/conclude action 루프가 있지만 기본 보고서 경로에서는 사용하지 않습니다. prepared 엔진에 모든 요인별 동적 계산 루프가 통합된 것은 아닙니다.
 또는 Git에서 제외되는 `workspace/llm_connection.json`에 `base_url`, `model`, `api_key`를 저장하면 서버 재시작 없이 다음 요청에서 읽습니다. 키가 포함된 이 파일을 공유하거나 Git에 올리지 않습니다.
 
 ## 구현
@@ -31,7 +31,7 @@ Codespaces Ports → 8501 → Open in Browser. 포트는 Private으로 유지합
 - 문자 n-gram 검색 + 선택적 CPU 임베딩 + reciprocal rank fusion
 - networkless/read-only Docker 계산, 시간·메모리·프로세스 제한
 - 입력/출력 불변 JSON, 실행 이력, 요인 재시작, 디스크 재개
-- 요인별 분석과 검토용 종합 초안, JSON/Markdown 다운로드
+- 7개 목차의 순차 단일 패스 분석과 검토용 초안, JSON/Markdown 다운로드
 
 ## 현재 한계
 
@@ -39,7 +39,7 @@ Codespaces Ports → 8501 → Open in Browser. 포트는 Private으로 유지합
 - 현재 검증은 스키마·참조 무결성·기준일·실행 오류 중심입니다. 수치 원문 일치, 산식 의미, 주장 진실성의 완전한 자동 검증은 후속 연결 대상입니다. 보고서는 항상 DRAFT입니다.
 - 임베딩 미설정 시 화면에 lexical_only로 표시합니다. 선택적 모델은 `pip install -e '.[embedding]'` 후 지정합니다. 영구 벡터 캐시·학습형 reranker는 후속 작업입니다.
 - PDF는 기존 v0.17 계열 구조화 로직을 재사용하며 표 위치·헤더·본문과 연결/별도 재무제표 구역을 보존합니다. 이번 실측은 텍스트 PDF이며, 스캔 이미지의 LLM OCR 품질 검증은 포함하지 않습니다. 기존 운영 추론 엔진 전체를 통합한 상태는 아닙니다.
-- 새 자료는 새 run으로 등록합니다. 요인 재시작은 기존 입력과 이력을 보존하고 공통 근거·계산 결과를 재사용합니다. 자료 변경 시 모든 종속 판단의 자동 갱신은 추가 검증 대상입니다.
+- 새 자료는 새 run으로 등록합니다. 중단된 run은 시도하지 않은 다음 목차부터 계속하며 완료·실패한 목차를 다시 추론하지 않습니다. 자료 변경 시 새 run을 만들어야 하며 모든 종속 판단의 자동 갱신은 추가 검증 대상입니다.
 - Drive 자동 동기화·웹 검색·내부 지표 연결은 미구현입니다. 자료는 업로드로 등록합니다.
 
 ## JSON 자료 형식

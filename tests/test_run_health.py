@@ -8,7 +8,7 @@ from credit_review.demo import DemoClient, demo_sources
 from credit_review.run_health import saved_status, status_message, explain_failure
 
 
-def test_530_stops_following_factors_and_persists_reason(tmp_path, monkeypatch):
+def test_530_records_each_one_pass_section_and_persists_reason(tmp_path, monkeypatch):
     monkeypatch.setenv('CREDIT_WORKSPACE', str(tmp_path))
     monkeypatch.setenv('LLM_BASE_URL', 'https://example.test/v1')
     monkeypatch.setenv('LLM_MODEL', 'test')
@@ -24,8 +24,9 @@ def test_530_stops_following_factors_and_persists_reason(tmp_path, monkeypatch):
     app = AppTest.from_file(APP).run(timeout=30)
     next(b for b in app.button if b.label == '보고서 작성 계속').click().run(timeout=30)
     assert not app.exception
-    # At most the two already dispatched parallel requests; never later bundles.
-    assert 1 <= calls.count('/v1/chat/completions') <= 2
+    # The fixed contract is one attempt for each of seven sections, without retry.
+    assert calls.count('/v1/chat/completions') == 7
+    assert len(list(h.store.path.glob('section_*_attempt.json'))) == 7
     outcome = saved_status(h)
     assert outcome['status'] == 'FAILED'
     assert '530' in outcome['reason']

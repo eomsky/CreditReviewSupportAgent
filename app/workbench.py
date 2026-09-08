@@ -270,13 +270,13 @@ if start or resume:
         targets = ["F24"] if h.state.mode == "DEMO" else list(FACTORS)
         with st.spinner("심사보고서를 작성하고 있습니다."):
             questions = {}
-            # Resumed LIVE runs also use the shared follow-up queue, retaining assets.
+            # LIVE runs visit the seven visible report sections once, in order.
             if live:
-                h.state.review_strategy = 'grouped'
+                h.state.review_strategy = 'sequential_sections'
                 h.save()
             engine = analyse_prepared if live else analyse_factors
-            for event in engine(h, targets, concurrency=2 if live else 1, metrics=metrics,
-                                **({'time_budget':105} if live else {})):
+            for event in engine(h, targets, concurrency=1, metrics=metrics,
+                                **({'time_budget':int(os.environ.get('CREDIT_ANALYSIS_TIME_BUDGET','900'))} if live else {})):
                 kind, fid = event['kind'], event.get('factor_id')
                 if kind == 'status':
                     value = event['value']
@@ -295,24 +295,13 @@ if start or resume:
                 # Analysis artifacts stay on disk; keep live status compact above the report.
                 text = '\n\n'.join(list(questions.values())[:2])
                 if len(questions) > 2:
-                    text += f"\n\n그 외 {len(questions)-2}개 항목을 함께 검토하고 있습니다."
+                    text += f"\n\n이 목차의 나머지 {len(questions)-2}개 항목을 함께 작성하고 있습니다."
                 activity.info(f"{text or '다음 검토를 준비하고 있습니다.'}\n\n경과 {elapsed//60}분 {elapsed%60}초")
                 if 'finished' in event:
                     progress.progress(event['finished']/event['total'], text='심사보고서 작성 중')
-            if any(f.judgement for f in h.state.factors.values()):
-                try:
-                    stage = "요인별 판단 종합"
-                    checkpoint(h, "RUNNING", stage, current_question)
-                    activity.info("요인별 판단의 상충관계와 상환능력 영향을 종합하고 있습니다.")
-                    if live:
-                        write_section()
-                    else:
-                        h.synthesize()
-                except Exception as error:
-                    h.store.event(action="synthesis", status="ERROR", error=str(error))
-                    raise
-            else:
-                raise ValueError("Analysis validation failed: no supported judgements")
+            if not any(f.judgement for f in h.state.factors.values()):
+                errors = [f.error for f in h.state.factors.values() if f.error]
+                raise RuntimeError(errors[-1] if errors else "Analysis validation failed: no supported judgements")
         incomplete = [f for f in h.state.factors.values() if not f.judgement]
         checkpoint(h, "PARTIAL" if incomplete else "COMPLETED", "보고서 저장", reason=
             "일부 요인 분석이 검증 또는 실행 한도에서 종료되어 부분 보고서로 저장했습니다." if incomplete else "")

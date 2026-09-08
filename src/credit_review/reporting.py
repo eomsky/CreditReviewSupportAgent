@@ -1,15 +1,8 @@
 """Report-only projection. Internal coverage/missing lists never enter this view."""
 from .registry import FACTORS
+from .report_plan import REPORT_SECTIONS, FACTOR_HEADINGS
 
-SECTIONS = [
-    ("기업 개요 및 지배구조", ["F01", "F02", "F03", "F04", "F05"]),
-    ("여신 신청내용 및 거래구조", ["F27", "F28"]),
-    ("산업환경 및 사업성", [f"F{i:02}" for i in range(6, 13)]),
-    ("재무현황 및 수익성", [f"F{i:02}" for i in range(13, 21)]),
-    ("차입구조 및 상환능력", ["F21", "F22", "F23", "F24"]),
-    ("담보·우발채무 및 주요 위험", ["F25", "F26", "F30"]),
-    ("당행 거래 및 수익성", ["F29"]),
-]
+SECTIONS = [(section["title"], list(section["factor_ids"])) for section in REPORT_SECTIONS]
 
 
 def report_document(h):
@@ -20,7 +13,7 @@ def report_document(h):
         paragraphs, tables = [], []
         for fid in ids:
             f = h.state.factors[fid]
-            if title == '재무현황 및 수익성':
+            if title == '재무 분석':
                 for aid in f.dataset_ids:
                     if aid in displayed_datasets: continue
                     displayed_datasets.add(aid)
@@ -35,10 +28,10 @@ def report_document(h):
                         'columns':[(c.get('description') or c['name'])+(f" ({c['unit']})" if c.get('unit') else '') for c in columns],
                         'rows':[[value(row[c['name']]) for c in columns] for row in data['rows']]})
             if f.report_text:
-                paragraphs.append({"heading": FACTORS[fid]["name"], "text": f.report_text})
+                paragraphs.append({"heading": FACTOR_HEADINGS[fid], "text": f.report_text})
                 continue
             if f.judgement:
-                paragraphs.append({"heading": FACTORS[fid]["name"], "text": f.judgement.summary})
+                paragraphs.append({"heading": FACTOR_HEADINGS[fid], "text": f.judgement.summary})
                 # Risks/mitigants are substantive analysis, unlike internal missing slots.
                 for label, values in [("위험요인", f.judgement.risks), ("완화요인", f.judgement.mitigants)]:
                     if values:

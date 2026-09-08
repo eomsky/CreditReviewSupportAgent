@@ -23,7 +23,7 @@ def test_report_hides_diagnostics_and_retains_analysis(tmp_path, monkeypatch):
         evidence_ids=['demo_cash'], risks=['유동성 부담'], missing=['INTERNAL_MISSING_ONLY'], conflicts=['INTERNAL_CONFLICT_ONLY'])
     h.save()
     text = report_markdown(report_document(h))
-    assert '차입구조 및 상환능력' in text
+    assert '상환재원' in text
     assert '보유현금이 부족' in text
     assert '유동성 부담' in text
     assert 'INTERNAL_' not in text

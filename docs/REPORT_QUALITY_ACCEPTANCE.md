@@ -1,8 +1,16 @@
 # Report quality and latency acceptance
 
 The target is an evidence-grounded credit-review draft comparable in analytical
-depth to the supplied reference reports, completed within 120 seconds. Report
-length, 30 populated factors and valid JSON are not sufficient acceptance criteria.
+depth and visible structure to the supplied reference report. The normative
+outline and one-pass generation contract are in
+[`REFERENCE_REPORT_BLUEPRINT.md`](REFERENCE_REPORT_BLUEPRINT.md). Report length,
+30 populated factors, seven completed calls and valid JSON are not sufficient
+acceptance criteria.
+
+The production inference path is sequential and bounded: one LLM call for each
+of the seven report sections, in display order. There is no foundation-inference
+call, follow-up inference, quality re-inference, per-factor prose rewrite or extra
+synthesis call. OCR, extraction, calculations, tables and charts are local code.
 
 ## Required review
 
@@ -28,8 +36,8 @@ remain in report prose so that presentation does not misrepresent the evidence.
 
 ## Timing protocol
 
-Record separately: upload/extraction/OCR, index construction, first report text,
-analysis and Python time, final synthesis, and total completion. Cached-document
+Record separately: upload/extraction/OCR, index construction, each of the seven
+section calls, local calculation/chart time, first report text, and total completion. Cached-document
 benchmarks must be labelled as such. A successful cached run under 120 seconds
 does not establish fresh-document latency or reliability.
 

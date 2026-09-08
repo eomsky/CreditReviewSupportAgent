@@ -1,10 +1,10 @@
 import json
 import pytest
-from threading import Event
 from test_harness import make
 from credit_review.prepared import analyse_prepared, evidence_pack
 from credit_review.prepared_client import alias_context, prepare_financial, review_bundle
 from credit_review.registry import FACTORS
+from credit_review.report_plan import REPORT_SECTIONS, REPORT_FACTOR_ORDER
 
 
 def test_compact_shared_page_keeps_exact_scope_text_and_original():
@@ -36,27 +36,28 @@ def test_aliases_restore_reference_keys_and_lists_without_changing_text():
     assert json.loads(restore(json.dumps(compact)))==value
 
 
-@pytest.mark.parametrize('concurrency',[1,2,3,4])
-def test_numeric_bundles_wait_and_overall_sees_previous_findings(tmp_path,concurrency):
+@pytest.mark.parametrize('concurrency',[1,2,4])
+def test_report_sections_are_called_once_in_display_order(tmp_path,concurrency):
     h=make(tmp_path)
-    foundation=Event()
+    calls=[]
     class Client:
         def set_deadline(self,deadline): pass
-        def prepare_financial(self,context):
-            foundation.set()
-            return '{"datasets":[],"limitations":["fixture has no extracted statement"]}'
         def review_bundle(self,context):
+            calls.append(context['report_section']['title'])
             ids=list(context['factors'])
-            if 'F13' in ids: assert foundation.is_set()
-            if ids==['F30']: assert len(context['prior_findings'])==29
+            assert context['single_pass'] is True
             return json.dumps({'findings':[{'factor_id':fid,'judgement':{
                 'summary':'Evidence is limited; repayment capacity is not established.',
                 'evidence_ids':[], 'missing':['financial and contractual evidence']}} for fid in ids], 'requests':[]})
     h.client=Client()
     events=list(analyse_prepared(h,list(FACTORS),time_budget=10,concurrency=concurrency))
+    assert calls==[section['title'] for section in REPORT_SECTIONS]
+    assert len(calls)==len(REPORT_SECTIONS)==7
     assert all(f.judgement for f in h.state.factors.values())
     assert all(f.status=='PARTIALLY_FULFILLED' for f in h.state.factors.values())
-    assert any(e['kind']=='heartbeat' or e['kind']=='state' for e in events)
+    assert any(e['kind']=='state' for e in events)
+    assert not list(h.store.path.glob('quality_review.json'))
+    assert not list((h.store.path/'artifacts').glob('prepared_foundation_input_*.json'))
 
 
 def test_delivered_sources_are_complete_and_respect_budget(tmp_path):
@@ -98,9 +99,11 @@ def test_bundle_reference_arrays_cannot_repeat_until_token_limit():
             assert required['additionalProperties'] is False
             assert all(p['maxItems']==2 for p in required['properties'].values())
             assert judgement['missing']['maxItems']==6
+            assert schema['properties']['requests']['maxItems']==0
             return '{"findings":[],"requests":[]}'
     review_bundle(Client(),{'sources':{'a':{},'b':{}},'datasets':{},'calculations':{},
-                            'factors':{'F27':FACTORS['F27']}})
+                            'factors':{'F27':FACTORS['F27']},'single_pass':True,
+                            'report_section':{'number':2,'title':'여신 개요 및 신청 사유','blocks':['신청내용']}})
 
 
 def test_initial_numeric_bundle_thinking_is_opt_in_and_separate_from_review(monkeypatch):
@@ -120,22 +123,24 @@ def test_initial_numeric_bundle_thinking_is_opt_in_and_separate_from_review(monk
     assert 'thinking_token_budget' not in options[1]
 
 
-def test_quality_pass_rejection_retains_draft_and_is_not_reported_complete(tmp_path):
+def test_failed_section_is_not_reinferred_on_resume(tmp_path):
     h=make(tmp_path)
+    calls=[]
     class Client:
         def set_deadline(self,deadline): pass
-        def prepare_financial(self,context): return '{"datasets":[],"limitations":[]}'
         def review_bundle(self,context):
+            calls.append(context['report_section']['number'])
+            if context['report_section']['number']==1:
+                raise TimeoutError('first section timeout')
             return json.dumps({'findings':[{'factor_id':fid,'judgement':{
-                'summary':'Original supported limitation',
-                'evidence_ids':['nonexistent'] if fid=='F17' and context['review_pass'] else [],
+                'summary':'Original supported limitation', 'evidence_ids':[],
                 'missing':['Sources not provided']}} for fid in context['factors']]})
     h.client=Client()
     list(analyse_prepared(h,list(FACTORS),time_budget=30,concurrency=2))
-    review=json.loads((h.store.path/'quality_review.json').read_text())
-    assert review['status']=='PARTIAL'
-    assert review['unresolved']==['F17']
-    assert h.state.factors['F17'].judgement.summary=='Original supported limitation'
+    assert calls==list(range(1,8))
+    list(analyse_prepared(h,list(FACTORS),time_budget=30,concurrency=2))
+    assert calls==list(range(1,8))
+    assert json.loads((h.store.path/'section_01_attempt.json').read_text(encoding='utf-8'))['status']=='FAILED'
 
 
 def test_ordered_bundle_cannot_borrow_another_factors_requirement_keys():
@@ -152,17 +157,7 @@ def test_ordered_bundle_cannot_borrow_another_factors_requirement_keys():
                             'factors':{fid:FACTORS[fid] for fid in ['F27','F29']}})
 
 
-def test_overall_risk_uses_revised_findings_after_quality_pass(tmp_path):
-    h=make(tmp_path); observed=[]
-    class Client:
-        def set_deadline(self,deadline): pass
-        def prepare_financial(self,context): return '{"datasets":[],"limitations":[]}'
-        def review_bundle(self,context):
-            if list(context['factors'])==['F30']:
-                observed.append(context['prior_findings']['F17']['summary'])
-            return json.dumps({'findings':[{'factor_id':fid,'judgement':{
-                'summary':'Revised liquidity limitation' if context['review_pass'] else 'Initial draft',
-                'evidence_ids':[],'missing':['Limited evidence']}} for fid in context['factors']]})
-    h.client=Client()
-    list(analyse_prepared(h,list(FACTORS),time_budget=30,concurrency=2))
-    assert observed==['Revised liquidity limitation']
+def test_report_plan_covers_every_factor_once():
+    assert len(REPORT_FACTOR_ORDER)==30
+    assert tuple(dict.fromkeys(REPORT_FACTOR_ORDER))==REPORT_FACTOR_ORDER
+    assert set(REPORT_FACTOR_ORDER)==set(FACTORS)
