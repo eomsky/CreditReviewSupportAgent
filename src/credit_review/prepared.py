@@ -152,7 +152,20 @@ def review_context(h, ids, extra=None):
         f.calculation_ids=sorted(set(f.calculation_ids)|set(context['calculations']))
         refs={sid for data in context['datasets'].values() for row in data['cell_sources'] for source_ids in row.values() for sid in source_ids}
         f.evidence_ids=sorted(set(f.evidence_ids)|refs)
-    context['prior_findings']={fid:f.judgement.model_dump() for fid,f in h.state.factors.items() if f.judgement}
+    # A later section only needs the earlier conclusions for cross-section
+    # consistency.  Sending the complete judgement objects (requirements,
+    # source lists, missing items, and conflicts) made the finance section grow
+    # with every preceding section and exceed the model context window.  Keep a
+    # compact analytical bridge so every one-pass section receives enough room
+    # for its own evidence.
+    context['prior_findings']={
+        fid: {
+            'summary': f.judgement.summary,
+            'risks': f.judgement.risks,
+            'mitigants': f.judgement.mitigants,
+        }
+        for fid,f in h.state.factors.items() if f.judgement
+    }
     context['foundation_errors']=getattr(h,'foundation_errors',[])
     return context
 

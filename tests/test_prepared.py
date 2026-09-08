@@ -1,7 +1,8 @@
 import json
 import pytest
 from test_harness import make
-from credit_review.prepared import analyse_prepared, evidence_pack
+from credit_review.prepared import analyse_prepared, evidence_pack, review_context
+from credit_review.models import Judgement
 from credit_review.prepared_client import alias_context, prepare_financial, review_bundle
 from credit_review.registry import FACTORS
 from credit_review.report_plan import REPORT_SECTIONS, REPORT_FACTOR_ORDER
@@ -66,6 +67,21 @@ def test_delivered_sources_are_complete_and_respect_budget(tmp_path):
     assert pack['sources']=={}
     assert pack['omitted_source_ids']
     assert not h.state.factors['F24'].read_source_ids
+
+
+def test_later_section_receives_compact_prior_findings(tmp_path):
+    h=make(tmp_path)
+    h.state.factors['F01'].judgement=Judgement(
+        summary='Earlier conclusion', evidence_ids=['source-a'],
+        risks=['Earlier risk'], mitigants=['Earlier mitigant'],
+        missing=['large internal checklist'], conflicts=['large internal conflict'],
+        requirements={'company_identity':['source-a']})
+    prior=review_context(h,['F02'])['prior_findings']['F01']
+    assert prior=={
+        'summary':'Earlier conclusion',
+        'risks':['Earlier risk'],
+        'mitigants':['Earlier mitigant'],
+    }
 
 
 def test_foundation_wire_pairing_preserves_each_rows_sources():
