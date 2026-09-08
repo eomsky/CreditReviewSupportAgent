@@ -66,9 +66,59 @@ REPORT_SECTIONS = (
 
 REPORT_FACTOR_ORDER = tuple(fid for section in REPORT_SECTIONS for fid in section["factor_ids"])
 if len(REPORT_SECTIONS) != 7:
-    raise RuntimeError("The reference report contract requires seven section calls")
+    raise RuntimeError("The reference report contract requires seven report sections")
 if len(REPORT_FACTOR_ORDER) != len(set(REPORT_FACTOR_ORDER)) or set(REPORT_FACTOR_ORDER) != set(FACTORS):
     raise RuntimeError("Every review factor must belong to exactly one report section")
+
+
+# The rendered report keeps seven top-level sections.  Finance is deliberately
+# inferred in two balanced calls so its tables, criteria, and structured output
+# fit inside the served model's context window.  Both calls are projected back
+# into the single ``5. 재무 분석`` report section below.
+FINANCE_SECTION_CALLS = (
+    {
+        "call_id": "05a",
+        "call_title": "재무 분석 — 손익·재무구조",
+        "factor_ids": ("F13", "F14", "F16", "F19"),
+        "blocks": ("주요 재무현황", "성장성 분석", "수익성 분석", "안정성 분석", "비경상손익·손상"),
+    },
+    {
+        "call_id": "05b",
+        "call_title": "재무 분석 — 현금·자산·전망",
+        "factor_ids": ("F15", "F17", "F18", "F20"),
+        "blocks": ("현금흐름 분석", "유동성 분석", "운전자본 및 자산의 질", "미래실적과 가정"),
+    },
+)
+
+
+REPORT_SECTION_CALLS = tuple(
+    {
+        **section,
+        "call_id": f"{section['number']:02d}",
+        "call_title": section["title"],
+    }
+    for section in REPORT_SECTIONS
+    if section["number"] != 5
+) + tuple(
+    {
+        **next(section for section in REPORT_SECTIONS if section["number"] == 5),
+        **finance_call,
+    }
+    for finance_call in FINANCE_SECTION_CALLS
+)
+
+# Keep execution and report order explicit after replacing one section with two
+# calls.  This avoids the tuple concatenation order placing finance after section 7.
+REPORT_SECTION_CALLS = tuple(sorted(
+    REPORT_SECTION_CALLS,
+    key=lambda call: (call["number"], call["call_id"]),
+))
+REPORT_CALL_FACTOR_ORDER = tuple(fid for call in REPORT_SECTION_CALLS for fid in call["factor_ids"])
+if len(REPORT_SECTION_CALLS) != 8:
+    raise RuntimeError("The review execution contract requires eight LLM calls")
+if (len(REPORT_CALL_FACTOR_ORDER) != len(set(REPORT_CALL_FACTOR_ORDER))
+        or set(REPORT_CALL_FACTOR_ORDER) != set(REPORT_FACTOR_ORDER)):
+    raise RuntimeError("The eight-call plan must cover every report factor once")
 
 
 FACTOR_HEADINGS = {

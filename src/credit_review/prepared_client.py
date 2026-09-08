@@ -4,7 +4,7 @@ import os
 from copy import deepcopy
 from .prepared import Foundation, BundleReview
 from .batch_protocol import cell_dataset_schema, unpack_cell_records
-from .section_prompts import GLOBAL_REPORT_STYLE_PROMPT, SECTION_REPORT_PROMPTS
+from .section_prompts import GLOBAL_REPORT_STYLE_PROMPT, SECTION_REPORT_PROMPTS, SECTION_CALL_PROMPTS
 
 
 def alias_context(context):
@@ -194,12 +194,14 @@ def review_bundle(client, context):
     refs(schema['$defs']['EvidenceRequest']['properties']['source_ids'],list(context['sources'])+context.get('omitted_source_ids',[]))
     section=context.get('report_section',{})
     section_number=section.get('number')
+    section_call_id=section.get('call_id', f'{section_number:02d}' if isinstance(section_number,int) else '')
     section_instruction = (
-        f"이번 호출은 {section.get('number')}. {section.get('title')} 목차 전용이다. "
+        f"이번 호출은 {section.get('number')}. {section.get('call_title',section.get('title'))} 목차 전용이다. "
         f"목차 내부 구성은 {', '.join(section.get('blocks',[]))} 순서를 따른다. "
         '다른 목차를 작성하거나 재검토하지 않는다. 이 한 번의 호출에서 현재 근거로 목차를 완결하고 requests는 빈 배열로 둔다. '
         +GLOBAL_REPORT_STYLE_PROMPT
         +SECTION_REPORT_PROMPTS.get(section_number, '')
+        +SECTION_CALL_PROMPTS.get(section_call_id, '')
         if context.get('single_pass') else '')
     prompt = (
         section_instruction+
@@ -237,7 +239,11 @@ def review_bundle(client, context):
     bundle_thinking = (not context.get('review_pass') and os.environ.get('CREDIT_BUNDLE_THINKING','0')=='1'
                        and bool(set(context['factors']) & {f'F{i:02}' for i in range(13,27)}))
     thinking = review_thinking or bundle_thinking
-    options={'max_tokens':6000,'chat_template_kwargs':{'enable_thinking':thinking}}
+    # Four-factor finance calls need materially less output space than the old
+    # eight-factor bundle.  Reserving fewer completion tokens also leaves more
+    # of the fixed model context window available to evidence.
+    output_tokens=3500 if section_call_id in SECTION_CALL_PROMPTS else 6000
+    options={'max_tokens':output_tokens,'chat_template_kwargs':{'enable_thinking':thinking}}
     budget_key='CREDIT_BUNDLE_THINKING_BUDGET' if bundle_thinking else 'CREDIT_REVIEW_THINKING_BUDGET'
     if thinking and os.environ.get(budget_key):
         options['thinking_token_budget']=max(1,int(os.environ[budget_key]))

@@ -307,7 +307,8 @@ if start or resume:
         targets = ["F24"] if h.state.mode == "DEMO" else list(FACTORS)
         with st.spinner("심사보고서를 작성하고 있습니다."):
             questions = {}
-            # LIVE runs use dependency-aware waves with one call per section.
+            # LIVE runs use dependency-aware waves: seven rendered sections,
+            # with finance split into two calls to stay within model context.
             if live:
                 h.state.review_strategy = 'hybrid_sections'
                 h.save()

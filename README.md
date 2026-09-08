@@ -13,14 +13,14 @@ python -m streamlit run app/workbench.py --server.address 0.0.0.0
 ```
 
 Codespaces Ports → 8501 → Open in Browser. 포트는 Private으로 유지합니다.
-자료 업로드 후 **분석 시작**을 누르면 [기준 심사보고서 목차](docs/REFERENCE_REPORT_BLUEPRINT.md)의 7개 목차를 처음부터 끝까지 순차 작성합니다. **목차 하나당 LLM을 한 번 호출하므로 전체 보고서는 7회 호출**하며, 재추론·후속 근거 요청·별도 품질검토·최종 종합 호출은 하지 않습니다. 화면과 다운로드에는 보고서 본문·표만 표시하며 누락/충돌/coverage/실행 기록은 내부 JSON에 보존합니다. 생성 전 LLM 연결을 확인하며 연결 실패를 분석 완료로 표시하지 않습니다.
+자료 업로드 후 **분석 시작**을 누르면 [기준 심사보고서 목차](docs/REFERENCE_REPORT_BLUEPRINT.md)의 7개 목차를 의존성 순서로 작성합니다. 재무분석은 문맥 한도를 지키기 위해 `손익·재무구조`와 `현금·자산·전망`으로 나누므로 **전체 보고서는 8회 호출**합니다. 두 결과는 화면에서 하나의 `5. 재무 분석`으로 합쳐집니다. 재추론·후속 근거 요청·별도 품질검토·최종 종합 호출은 하지 않습니다. 화면과 다운로드에는 보고서 본문·표만 표시하며 누락/충돌/coverage/실행 기록은 내부 JSON에 보존합니다. 생성 전 LLM 연결을 확인하며 연결 실패를 분석 완료로 표시하지 않습니다.
 기존에 저장된 DEMO 보고서는 가상 자료와 사전 정의 JSON으로 만든 예시입니다. 실제 LLM 분석이 아닙니다.
 
 ## Colab 연결
 
 실행 전 Codespaces 환경에 `LLM_BASE_URL` (끝에 /v1), `LLM_MODEL`, `LLM_API_KEY`를 설정합니다.
 `.env.example`은 예시이며 자동 로드되지 않습니다. 키는 Git에 저장하지 않습니다.
-기본 화면은 prepared 엔진을 사용합니다. 원문 구조화·근거 검색·계산 결과 준비는 로컬 코드에서 처리하고, LLM은 고정 목차 7개를 순서대로 한 번씩 작성합니다. 별도 queued 엔진에는 search/read/dataset/calculate/conclude action 루프가 있지만 기본 보고서 경로에서는 사용하지 않습니다. prepared 엔진에 모든 요인별 동적 계산 루프가 통합된 것은 아닙니다.
+기본 화면은 prepared 엔진을 사용합니다. 원문 구조화·근거 검색·계산 결과 준비는 로컬 코드에서 처리하고, LLM은 7개 고정 목차를 8개 단일 패스 호출로 작성합니다. 별도 queued 엔진에는 search/read/dataset/calculate/conclude action 루프가 있지만 기본 보고서 경로에서는 사용하지 않습니다. prepared 엔진에 모든 요인별 동적 계산 루프가 통합된 것은 아닙니다.
 또는 Git에서 제외되는 `workspace/llm_connection.json`에 `base_url`, `model`, `api_key`를 저장하면 서버 재시작 없이 다음 요청에서 읽습니다. 키가 포함된 이 파일을 공유하거나 Git에 올리지 않습니다.
 
 ## 구현
@@ -31,7 +31,7 @@ Codespaces Ports → 8501 → Open in Browser. 포트는 Private으로 유지합
 - 문자 n-gram 검색 + 선택적 CPU 임베딩 + reciprocal rank fusion
 - networkless/read-only Docker 계산, 시간·메모리·프로세스 제한
 - 입력/출력 불변 JSON, 실행 이력, 요인 재시작, 디스크 재개
-- 7개 목차의 순차 단일 패스 분석과 검토용 초안, JSON/Markdown 다운로드
+- 7개 목차·8회 단일 패스 분석과 검토용 초안, JSON/Markdown 다운로드
 
 ## 현재 한계
 

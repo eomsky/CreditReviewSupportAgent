@@ -24,9 +24,11 @@ def test_530_records_each_one_pass_section_and_persists_reason(tmp_path, monkeyp
     app = AppTest.from_file(APP).run(timeout=30)
     next(b for b in app.button if b.label == '보고서 작성 계속').click().run(timeout=30)
     assert not app.exception
-    # The fixed contract is one attempt for each of seven sections, without retry.
-    assert calls.count('/v1/chat/completions') == 7
-    assert len(list(h.store.path.glob('section_*_attempt.json'))) == 7
+    # Seven rendered sections use eight one-pass calls because finance is split.
+    assert calls.count('/v1/chat/completions') == 8
+    assert len(list(h.store.path.glob('section_*_attempt.json'))) == 8
+    assert (h.store.path/'section_05a_attempt.json').exists()
+    assert (h.store.path/'section_05b_attempt.json').exists()
     outcome = saved_status(h)
     assert outcome['status'] == 'FAILED'
     assert '530' in outcome['reason']

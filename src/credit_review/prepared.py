@@ -1,4 +1,4 @@
-"""Evidence-first review with one dependency-aware LLM call per report section."""
+"""Evidence-first review with eight dependency-aware calls for seven report sections."""
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 from time import monotonic
@@ -9,13 +9,13 @@ from .evidence_queries import QUERIES, NUMERIC_FACTORS
 from .table_access import prompt_source, table_card
 from .parallel import Measurements
 from .store import atomic_json
-from .report_plan import REPORT_SECTIONS
+from .report_plan import REPORT_SECTION_CALLS
 
 
 # Independent source reviews run together.  Risk and repayment then receive the
 # completed business/finance findings, and the final section receives every
 # earlier conclusion.  This preserves report coherence while reducing wall time.
-SECTION_WAVES = ((1, 2, 3, 5), (4, 6), (7,))
+SECTION_WAVES = (("01", "02", "03", "05a", "05b"), ("04", "06"), ("07",))
 
 NUMERIC_INPUTS = ['F13','F14','F15','F16','F17','F18','F21','F22']
 DISCOVERY = {
@@ -143,8 +143,9 @@ def foundation_context(h,ids):
     return evidence_pack(h,ids,budget=32000,prefer_consolidated=True)
 
 
-def review_context(h, ids, extra=None):
-    context = evidence_pack(h, ids, extra,prefer_consolidated=bool(set(ids)&set(NUMERIC_INPUTS)))
+def review_context(h, ids, extra=None, evidence_budget=42000):
+    context = evidence_pack(h, ids, extra, budget=evidence_budget,
+                            prefer_consolidated=bool(set(ids)&set(NUMERIC_INPUTS)))
     context['factors'] = {fid:FACTORS[fid] for fid in ids}
     from .review_criteria import CRITERIA
     context['review_criteria']={fid:CRITERIA[fid] for fid in ids if fid in CRITERIA}
@@ -178,7 +179,7 @@ def review_context(h, ids, extra=None):
 
 
 def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=900, **kwargs):
-    """Visit seven report sections once in dependency waves, one LLM call each.
+    """Build seven report sections in eight one-pass dependency-aware LLM calls.
 
     Retrieval and projection are local. A section attempt marker is written before
     the call, so a resume continues with the next untouched section instead of
@@ -196,17 +197,17 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=900, *
             'total': len(targets), 'metrics': metrics.snapshot(),
         }
 
-    by_number = {section['number']: section for section in REPORT_SECTIONS}
+    by_call = {section['call_id']: section for section in REPORT_SECTION_CALLS}
     slots = max(1, min(2, int(concurrency)))
     with ThreadPoolExecutor(max_workers=slots, thread_name_prefix='credit-section') as pool:
-        for wave_numbers in SECTION_WAVES:
+        for wave_call_ids in SECTION_WAVES:
             jobs = []
-            for number in wave_numbers:
-                section = by_number[number]
+            for call_id in wave_call_ids:
+                section = by_call[call_id]
                 ids = [fid for fid in section['factor_ids'] if fid in target_set]
                 if not ids:
                     continue
-                marker = h.store.path / f"section_{section['number']:02d}_attempt.json"
+                marker = h.store.path / f"section_{call_id}_attempt.json"
                 # Completed, failed, and submitted markers all prevent re-inference.
                 if marker.exists() or all(h.state.factors[fid].judgement or h.state.factors[fid].error for fid in ids):
                     continue
@@ -215,24 +216,29 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=900, *
 
                 # Context construction remains on the single writer.  Members of a
                 # wave share the same completed prior waves, never partial peer state.
-                context = review_context(h, ids)
+                # Each finance half receives its own evidence budget.  Across
+                # both calls the available evidence remains comparable with the
+                # former single bundle, while either request stays below the
+                # 32K model context window.
+                context = review_context(h, ids, evidence_budget=22000 if call_id in ('05a','05b') else 42000)
                 context.update({
                     'single_pass': True,
                     'report_section': {
                         'number': section['number'], 'title': section['title'],
+                        'call_id': call_id, 'call_title': section['call_title'],
                         'blocks': list(section['blocks']),
                     },
                 })
-                parent = h.store.put(f"section_{section['number']:02d}_input", context)
+                parent = h.store.put(f"section_{call_id}_input", context)
                 atomic_json(marker, {
-                    'status': 'SUBMITTED', 'section': section['title'],
+                    'status': 'SUBMITTED', 'section': section['call_title'],
                     'factor_ids': ids, 'input_artifact_id': parent,
                 })
                 jobs.append((section, ids, marker, parent, context))
                 for fid in ids:
                     yield event('status', fid, {
                         'action': 'review',
-                        'question': f"{section['number']}. {section['title']} 목차 작성",
+                        'question': f"{section['number']}. {section['call_title']} 목차 작성",
                     }, ids)
             h.save()
 
@@ -242,7 +248,7 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=900, *
                 section, ids, marker, parent = futures[future]
                 try:
                     raw = future.result()
-                    output = h.store.put(f"section_{section['number']:02d}_output", {'raw': raw}, [parent])
+                    output = h.store.put(f"section_{section['call_id']}_output", {'raw': raw}, [parent])
                     reply = BundleReview.model_validate_json(raw)
                     seen = set()
                     for finding in reply.findings:
@@ -266,16 +272,16 @@ def analyse_prepared(h, targets, concurrency=2, metrics=None, time_budget=900, *
                         h.state.factors[fid].error = 'Section response omitted this factor'
                     atomic_json(marker, {
                         'status': 'COMPLETED' if not missing else 'PARTIAL',
-                        'section': section['title'], 'factor_ids': ids,
+                        'section': section['call_title'], 'factor_ids': ids,
                         'accepted_factor_ids': sorted(seen - missing), 'output_artifact_id': output,
                     })
                 except Exception as error:
-                    h.store.event(action='section_failure', stage=section['title'], factors=ids, error=str(error))
+                    h.store.event(action='section_failure', stage=section['call_title'], factors=ids, error=str(error))
                     for fid in ids:
                         if not h.state.factors[fid].judgement:
                             h.state.factors[fid].error = str(error)[:1000]
                     atomic_json(marker, {
-                        'status': 'FAILED', 'section': section['title'],
+                        'status': 'FAILED', 'section': section['call_title'],
                         'factor_ids': ids, 'error': str(error)[:1000],
                     })
                 finally:

@@ -7,8 +7,8 @@ from credit_review.prepared import analyse_prepared, evidence_pack, review_conte
 from credit_review.models import Judgement
 from credit_review.prepared_client import alias_context, prepare_financial, review_bundle
 from credit_review.registry import FACTORS
-from credit_review.report_plan import REPORT_SECTIONS, REPORT_FACTOR_ORDER
-from credit_review.section_prompts import GLOBAL_REPORT_STYLE_PROMPT, SECTION_REPORT_PROMPTS
+from credit_review.report_plan import REPORT_SECTIONS, REPORT_SECTION_CALLS, REPORT_FACTOR_ORDER, REPORT_CALL_FACTOR_ORDER
+from credit_review.section_prompts import GLOBAL_REPORT_STYLE_PROMPT, SECTION_REPORT_PROMPTS, SECTION_CALL_PROMPTS
 
 
 def test_compact_shared_page_keeps_exact_scope_text_and_original():
@@ -47,7 +47,7 @@ def test_report_sections_are_called_once_in_dependency_waves(tmp_path,concurrenc
     class Client:
         def set_deadline(self,deadline): pass
         def review_bundle(self,context):
-            calls.append(context['report_section']['title'])
+            calls.append(context['report_section']['call_id'])
             ids=list(context['factors'])
             assert context['single_pass'] is True
             return json.dumps({'findings':[{'factor_id':fid,'judgement':{
@@ -55,11 +55,11 @@ def test_report_sections_are_called_once_in_dependency_waves(tmp_path,concurrenc
                 'evidence_ids':[], 'missing':['financial and contractual evidence']}} for fid in ids], 'requests':[]})
     h.client=Client()
     events=list(analyse_prepared(h,list(FACTORS),time_budget=10,concurrency=concurrency))
-    assert len(calls)==len(REPORT_SECTIONS)==7
-    assert set(calls)=={section['title'] for section in REPORT_SECTIONS}
-    assert set(calls[:4])=={'업체현황','여신 개요 및 신청 사유','사업 분석','재무 분석'}
-    assert set(calls[4:6])=={'주요 리스크 분석','상환재원'}
-    assert calls[6]=='특이사항'
+    assert len(calls)==len(REPORT_SECTION_CALLS)==8
+    assert set(calls)=={section['call_id'] for section in REPORT_SECTION_CALLS}
+    assert set(calls[:5])=={'01','02','03','05a','05b'}
+    assert set(calls[5:7])=={'04','06'}
+    assert calls[7]=='07'
     assert all(f.judgement for f in h.state.factors.values())
     assert all(f.status=='PARTIALLY_FULFILLED' for f in h.state.factors.values())
     assert any(e['kind']=='state' for e in events)
@@ -77,8 +77,8 @@ def test_parallel_sections_overlap_and_later_waves_receive_prior_findings(tmp_pa
         def set_deadline(self,deadline): pass
         def review_bundle(self,context):
             nonlocal active,maximum
-            number=context['report_section']['number']
-            received[number]=set(context['prior_findings'])
+            call_id=context['report_section']['call_id']
+            received[call_id]=set(context['prior_findings'])
             with guard:
                 active+=1
                 maximum=max(maximum,active)
@@ -91,10 +91,12 @@ def test_parallel_sections_overlap_and_later_waves_receive_prior_findings(tmp_pa
     h.client=Client()
     list(analyse_prepared(h,list(FACTORS),time_budget=10,concurrency=2))
     assert maximum==2
-    assert received[1]==received[2]==received[3]==received[5]==set()
-    assert {'F06','F13'} <= received[4]
-    assert {'F27','F13'} <= received[6]
-    assert {'F30','F24'} <= received[7]
+    assert received['01']==received['02']==received['03']==received['05a']==received['05b']==set()
+    assert {'F06','F13','F15'} <= received['04']
+    assert {'F27','F13','F15'} <= received['06']
+    assert {'F30','F24'} <= received['07']
+    assert (h.store.path/'section_05a_attempt.json').exists()
+    assert (h.store.path/'section_05b_attempt.json').exists()
 
 
 def test_delivered_sources_are_complete_and_respect_budget(tmp_path):
@@ -159,19 +161,20 @@ def test_bundle_reference_arrays_cannot_repeat_until_token_limit():
 
 
 def test_every_single_pass_section_receives_reference_report_prompt():
-    prompts=[]
+    prompts={}
     class Client:
         def complete(self,prompt,context,schema,request_options):
-            prompts.append(prompt)
+            prompts[context['report_section']['call_id']]={'prompt':prompt,'options':request_options}
             return '{"findings":[],"requests":[]}'
-    for section in REPORT_SECTIONS:
+    for section in REPORT_SECTION_CALLS:
         review_bundle(Client(),{
             'sources':{},'datasets':{},'calculations':{},'single_pass':True,
             'factors':{fid:FACTORS[fid] for fid in section['factor_ids']},
             'report_section':section,
         })
-    assert len(prompts)==7
-    for section,prompt in zip(REPORT_SECTIONS,prompts):
+    assert len(prompts)==8
+    for section in REPORT_SECTION_CALLS:
+        prompt=prompts[section['call_id']]['prompt']
         assert GLOBAL_REPORT_STYLE_PROMPT in prompt
         assert SECTION_REPORT_PROMPTS[section['number']] in prompt
         assert f"【{section['number']}." in prompt
@@ -179,9 +182,15 @@ def test_every_single_pass_section_receives_reference_report_prompt():
         assert '모든 문장 어미는' in prompt
         assert '요인당 3~5문장을 사용한다' in prompt
         assert '내부 근거 ID는 evidence_ids에만 기록' in prompt
-    assert '914,339,580천원을 9.14억원으로 축약하지 않으며' in prompts[5]
-    assert '각 소제목을 중복 없이 3~4문장으로 완결' in prompts[4]
-    assert '승인·조건부 승인·감액·만기조정·보류·부결' in prompts[6]
+    assert SECTION_CALL_PROMPTS['05a'] in prompts['05a']['prompt']
+    assert SECTION_CALL_PROMPTS['05b'] in prompts['05b']['prompt']
+    assert prompts['05a']['options']['max_tokens']==3500
+    assert prompts['05b']['options']['max_tokens']==3500
+    assert '각 소제목을 중복 없이 3~4문장으로 완결' in prompts['05a']['prompt']
+    assert '현금상환 가능성을 선결론 내리지 않음' in prompts['05a']['prompt']
+    assert '투자활동 순현금유출을 CAPEX와 동일시하지 않음' in prompts['05b']['prompt']
+    assert '914,339,580천원을 9.14억원으로 축약하지 않으며' in prompts['06']['prompt']
+    assert '승인·조건부 승인·감액·만기조정·보류·부결' in prompts['07']['prompt']
 
 
 def test_initial_numeric_bundle_thinking_is_opt_in_and_separate_from_review(monkeypatch):
@@ -207,17 +216,17 @@ def test_failed_section_is_not_reinferred_on_resume(tmp_path):
     class Client:
         def set_deadline(self,deadline): pass
         def review_bundle(self,context):
-            calls.append(context['report_section']['number'])
-            if context['report_section']['number']==1:
+            calls.append(context['report_section']['call_id'])
+            if context['report_section']['call_id']=='01':
                 raise TimeoutError('first section timeout')
             return json.dumps({'findings':[{'factor_id':fid,'judgement':{
                 'summary':'Original supported limitation', 'evidence_ids':[],
                 'missing':['Sources not provided']}} for fid in context['factors']]})
     h.client=Client()
     list(analyse_prepared(h,list(FACTORS),time_budget=30,concurrency=2))
-    assert len(calls)==7 and set(calls)==set(range(1,8))
+    assert len(calls)==8 and set(calls)=={c['call_id'] for c in REPORT_SECTION_CALLS}
     list(analyse_prepared(h,list(FACTORS),time_budget=30,concurrency=2))
-    assert len(calls)==7 and set(calls)==set(range(1,8))
+    assert len(calls)==8 and set(calls)=={c['call_id'] for c in REPORT_SECTION_CALLS}
     assert json.loads((h.store.path/'section_01_attempt.json').read_text(encoding='utf-8'))['status']=='FAILED'
 
 
@@ -239,3 +248,7 @@ def test_report_plan_covers_every_factor_once():
     assert len(REPORT_FACTOR_ORDER)==30
     assert tuple(dict.fromkeys(REPORT_FACTOR_ORDER))==REPORT_FACTOR_ORDER
     assert set(REPORT_FACTOR_ORDER)==set(FACTORS)
+    assert len(REPORT_SECTION_CALLS)==8
+    assert len(REPORT_CALL_FACTOR_ORDER)==30
+    assert len(set(REPORT_CALL_FACTOR_ORDER))==30
+    assert set(REPORT_CALL_FACTOR_ORDER)==set(FACTORS)
