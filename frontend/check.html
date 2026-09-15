@@ -1,0 +1,69 @@
+<!doctype html><meta charset="utf-8"><title>Frontend integration checks</title>
+<style>body{font:14px system-ui}li{margin:8px}.pass{color:#286337}.fail{color:#a32626}iframe{width:1150px;height:720px;border:1px solid #ddd}</style>
+<h1>Frontend integration checks — synthetic data only</h1><ol id="results"></ol>
+<iframe id="app" src="CreditReviewSupportAgent_UI_v0.1.66.html"></iframe>
+<script>
+const results=document.querySelector('#results');
+const output=(name,ok,error='')=>{const row=document.createElement('li');row.className=ok?'pass':'fail';row.textContent=(ok?'PASS: ':'FAIL: ')+name+(error?' — '+error:'');results.append(row);};
+window.addEventListener('error',e=>output('test harness error',false,e.message));
+const loaded=()=>new Promise(resolve=>document.querySelector('#app').addEventListener('load',resolve,{once:true}));
+async function run(){
+ const frame=document.querySelector('#app');await loaded();let w=frame.contentWindow;await w.CreditReview.ready;let api=w.CreditReview;
+ w.addEventListener('error',e=>output('application error',false,e.message));
+ const baseline=api.snapshot();
+ const assert=(condition,message)=>{if(!condition)throw Error(message);};
+ const test=async(name,fn)=>{try{await fn();output(name,true);}catch(e){output(name,false,e.message);}};
+ const section={paragraphs:[{id:'p-a',heading:'매출',text:'검증용 매출은 100억원임.',sources:[{id:'source-a',label:'검증자료 1쪽'}]}],tables:[{caption:'검증표',columns:['연도','매출'],rows:[['2025','100억원']],after_paragraph_index:0}]};
+ await test('load structured report and stable view IDs',async()=>{
+  await api.loadCase({id:'test-alpha',name:'검증업체 A',report:{case_id:'test-alpha',sections:[{title:'재무 분석',...section}]},views:{financial_accounts:section,cashflow_repayment:{paragraphs:[{id:'p-b',text:'현금흐름 확인이 필요함.'}],tables:[]}},audit:[{path:'/report',old:'100억원',new:'101억원',reason:'검증용'}]});
+  api.frame.navigate(1);assert(w.document.querySelector('#opinion table'),'table missing');assert(w.document.querySelector('[data-paragraph-id="p-a"]'),'stable paragraph ID missing');
+ });
+ await test('disconnected requests never modify report',async()=>{
+  const before=api.frame.payload().html;await api.submit('간결하게 수정해줘',['p-a']);assert(api.frame.payload().html===before,'offline demo modified content');
+ });
+ await test('full-screen keeps tables and current report view',async()=>{
+  api.frame.navigate(7);w.document.querySelector('#fullscreenWindow').click();
+  const child=await new Promise(resolve=>{const poll=()=>{const f=w.document.querySelector('.operating-frame.current');if(f?.contentDocument?.querySelector('#repairBody table'))resolve(f);else requestAnimationFrame(poll);};poll();setTimeout(()=>resolve(null),8000);});
+  assert(child,'full-screen did not render report table');assert(child.contentDocument.querySelector('.repair-title-row h1').textContent==='심사보고서','wrong full-screen view');
+  assert(!child.contentDocument.querySelector('#sourcePopover').textContent.includes('ABC기업'),'sample file remains');
+ });
+ await test('API revision uses paragraph IDs and preserves table/citation',async()=>{
+  api.frame.navigate(1);api.configure({transport:async(op,payload)=>{assert(op==='revise','wrong operation');assert(payload.case_id==='test-alpha','wrong case');return {replacements:[{id:'p-a',text:'검증용 수정본 100억원임.'}],revision:2};}});
+  await api.submit('간결하게 수정해줘',['p-a']);await api.frame.decide(true);
+  assert(w.document.querySelector('#opinion [data-paragraph-id="p-a"]').textContent.includes('수정본'),'revision missing');assert(w.document.querySelector('#opinion table'),'table lost');assert(w.document.querySelector('#opinion [data-source-id="source-a"]'),'citation lost');
+ });
+ await test('invalid revision is atomic',async()=>{
+  const before=w.document.querySelector('#opinion').textContent;
+  api.configure({transport:async()=>({replacements:[{id:'p-a',text:'잘못된 적용'},{id:'unknown',text:'거절해야 함'}]})});
+  await api.submit('다시 수정해줘',['p-a']);await api.frame.decide(true);assert(w.document.querySelector('#opinion').textContent===before,'partial invalid update');
+ });
+ await test('negative question routes to chat',async()=>{
+  let operation;api.configure({transport:async op=>{operation=op;return {message:'검증 답변'};}});await api.submit('수정하지 말고 설명해줘');assert(operation==='chat','incorrect intent');
+ });
+ await test('case isolation and read-only audit',async()=>{
+  const before=api.frame.payload().html;await api.loadCase({id:'test-beta',name:'검증업체 B'});assert(!api.frame.payload().html.includes('100억원'),'cross-case report');
+  await api.loadCase({id:'test-alpha',name:'검증업체 A'});assert(api.frame.payload().html===before,'case state changed');assert(api.frame.payload().audit.length===1,'audit state was discarded');
+ });
+ await test('browser snapshot preserves Blob attachments and metadata',async()=>{
+  const s=api.snapshot();const index=s.companies.findIndex(c=>c.id==='test-alpha');s.companies[index].state.files=[{id:'f-test',name:'test.json',file:new File(['{}'],'test.json',{type:'application/json'}),description:'검증 설명',priority:'중요',required:true}];await api.restore(s);await api.saveLocal();
+  const saved=api.snapshot().companies[index].state.files[0];assert(saved.file.size===2&&saved.required,'attachment lost');
+ });
+ await test('full-screen memo uses the shared editor',async()=>{
+  api.frame.navigate(1);const full=w.document.querySelector('.operating-frame.current');assert(full,'full-screen missing');
+  full.contentDocument.querySelector('[data-add-review="memo"]').click();
+  const title=w.document.querySelector('.entry-title-input'),content=w.document.querySelector('.entry-editor');assert(title&&content,'shared note editor missing');
+  title.value='공유 메모 검증';title.dispatchEvent(new Event('input',{bubbles:true}));content.value='업체 A의 메모';content.dispatchEvent(new Event('input',{bubbles:true}));w.document.querySelector('#entryHeaderSave').click();w.document.querySelector('#closeDrawer').click();
+  assert(full.contentDocument.querySelector('#sidebar').textContent.includes('공유 메모 검증'),'full-screen memo did not update');
+ });
+ await test('full-screen draft survives view changes',async()=>{
+  api.frame.draft('전송 전 초안');api.frame.navigate(2);api.frame.navigate(1);assert(api.frame.payload().draft==='전송 전 초안','draft lost');
+ });
+ await test('actual reload restores files and notes from IndexedDB',async()=>{
+  await api.saveLocal();const reload=loaded();frame.src=frame.src;await reload;w=frame.contentWindow;api=w.CreditReview;await api.ready;
+  const state=api.snapshot(),company=state.companies.find(c=>c.id==='test-alpha');assert(company.state.files[0].file.size===2,'Blob lost on reload');assert(api.frame.payload().notes.some(n=>n.title==='공유 메모 검증'),'note lost on reload');
+ });
+ await api.restore(baseline);api.disconnect();if(w.document.querySelector('#appWindow').classList.contains('expanded'))w.document.querySelector('#fullscreenWindow').click();
+ document.title=results.querySelector('.fail')?'FAIL — integration checks':'PASS — integration checks';
+}
+run().catch(e=>output('fatal',false,e.message));
+</script>

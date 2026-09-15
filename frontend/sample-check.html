@@ -1,0 +1,29 @@
+<!doctype html><meta charset="utf-8"><title>샘플 의견 연계 검증</title><pre id="result">검증 중</pre><iframe id="target" src="sample170.html" style="width:1000px;height:750px"></iframe>
+<script>
+const output=document.getElementById('result'),f=document.getElementById('target');
+f.onload=async()=>{
+ f.onload=null;let api,baseline;const passed=[];
+ const check=(condition,label)=>{if(!condition)throw Error(label);passed.push('PASS '+label);output.textContent=passed.join('\n');};
+ try{
+  const w=f.contentWindow;await w.sampleReviewReady;api=w.CreditReview;
+  check(w.sampleReviewInfo.sourceCount===6,'원문 이미지 6장 포함');
+  baseline=api.snapshot();
+  for(let i=0;i<8;i++){api.frame.navigate(i);const p=api.frame.payload();check(p.html.includes('data-paragraph-id')&&p.status==='검토용 초안','화면 '+i+' 본문 및 상태');}
+  check(api.snapshot().records.find(([id])=>id===w.sampleReviewInfo.caseId)[1].report.sections.length===7,'심사보고서 7개 절');
+  const prompts=api.generationPrompts();check(Object.keys(prompts).length===8&&Object.values(prompts).every(p=>p.length>0),'8개 화면 프롬프트 등록');
+  api.frame.navigate(1);await api.installPromptPack({financial_accounts:'검증용 변경 프롬프트'});
+  let state=api.snapshot();state.companies.find(c=>c.id===state.active_case_id).state.files=[{id:'test-doc',name:'test.json',server_id:'already-uploaded',description:'mock test'}];
+  await api.restore(state);
+  let sent;api.configure({transport:async(operation,payload)=>{if(operation!=='analyze')throw Error(operation);sent=payload;return {id:'mock-only',status:'queued'};}});
+  await api.analyze();check(sent.generation_prompts.financial_accounts.some(p=>p.text==='검증용 변경 프롬프트'),'수정된 항목 프롬프트가 analyze 요청에 전달됨');
+  api.disconnect();await api.restore(baseline);
+  api.frame.navigate(1);await api.installPromptPack({financial_accounts:'재열기 보존 검증'});
+  await api.saveLocal();
+  await new Promise(resolve=>{f.onload=resolve;w.location.reload();});f.onload=null;
+  await f.contentWindow.sampleReviewReady;api=f.contentWindow.CreditReview;
+  check(api.generationPrompts().financial_accounts.some(p=>p.text==='재열기 보존 검증'),'재열기 시 프롬프트 수정 보존');
+  await api.restore(baseline);api.frame.navigate(0);
+  output.textContent=passed.join('\n')+'\nCOMPLETE '+passed.length;
+ }catch(e){output.textContent+='\nFAIL '+e.stack;if(api&&baseline){api.disconnect();await api.restore(baseline);}}
+};
+</script>

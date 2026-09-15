@@ -1,0 +1,26 @@
+const {chromium}=require('C:/Users/lasts/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const path=require('path'),fs=require('fs'),assert=require('assert');
+(async()=>{
+ const browser=await chromium.launch({channel:'msedge',headless:true}),page=await browser.newPage({viewport:{width:1100,height:900}}),errors=[];
+ page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('file:///'+path.resolve('frontend/CreditReviewSupportAgent_App_v0.1.69.html').replaceAll('\\','/'));
+ await page.waitForFunction(()=>!!window.CreditReview);await page.evaluate(()=>CreditReview.ready);
+ await page.evaluate(()=>{CreditReview.loadReport({sections:[]},{financial_accounts:{title:'가',paragraphs:[{id:'qa-p',heading:'분석의견',text:'표시 시험입니다.',sources:[]}],tables:[{caption:'현황 (단위: 백만원)',fixed_template:true,columns:['구분','2024','2025'],rows:[['.','2024','2025'],['항목',1,null]]}]}});CreditReview.frame.navigate(1);document.getElementById('reviewHome').hidden=true;CreditReview.watchGeneration=()=>({close(){}});});
+ assert.equal(await page.locator('#opinion tbody tr').count(),2);
+ assert.equal(await page.locator('#opinion .duplicate-header-row').evaluate(e=>getComputedStyle(e).display),'none');
+ assert.equal(await page.evaluate(()=>new DOMParser().parseFromString(CreditReviewMenu.buildExport().html,'text/html').querySelectorAll('.duplicate-header-row').length),0);
+ const run={id:'qa-ui',status:'running',phase:'draft',target_views:['financial_accounts'],completed_calls:0,stage:'자료 충분성 및 표 구성 검토',item_percent:20};
+ await page.evaluate(run=>CreditReviewMenu.observe({run}),run);
+ assert((await page.locator('#generationStatus').innerText()).includes('가 · 자료 검토'));
+ await page.evaluate(run=>CreditReviewMenu.observe({run:{...run,item_percent:60}}),run);
+ assert((await page.locator('#generationStatus').innerText()).includes('가 · 생성 중'));
+ await page.evaluate(run=>CreditReviewMenu.observe({run:{...run,item_percent:10}}),run);
+ assert((await page.locator('#generationStatus').innerText()).includes('60%'));
+ await page.evaluate(()=>CreditReviewMenu.observe({run:{status:'cancelled'}}));
+ await page.evaluate(()=>{appWindow.classList.add('expanded');syncFullWorkspace();});
+ await page.waitForFunction(()=>[...document.querySelectorAll('iframe')].some(f=>f.contentDocument?.querySelector('.duplicate-header-row')));
+ const hidden=await page.evaluate(()=>[...document.querySelectorAll('iframe')].map(f=>{const row=f.contentDocument?.querySelector('.duplicate-header-row');return row&&f.contentWindow.getComputedStyle(row).display;}).filter(Boolean));
+ assert(hidden.every(x=>x==='none'));
+ fs.mkdirSync('workspace/qa-visual',{recursive:true});await page.screenshot({path:'workspace/qa-visual/full-mode.png'});
+ assert.deepEqual(errors,[]);console.log('Normal/full display, duplicate header, target stage and monotonic progress passed');await browser.close();
+})().catch(e=>{console.error(e);process.exit(1);});

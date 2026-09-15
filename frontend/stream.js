@@ -1,0 +1,4 @@
+window.readReviewStream=async(response,onEvent)=>{
+ const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='',doneResult;
+ try{while(true){const part=await reader.read();buffer+=decoder.decode(part.value||new Uint8Array(),{stream:!part.done});let end;while((end=buffer.indexOf('\n\n'))>=0){const block=buffer.slice(0,end);buffer=buffer.slice(end+2);const lines=block.split('\n'),kind=lines.find(l=>l.startsWith('event:'))?.slice(6).trim(),data=lines.filter(l=>l.startsWith('data:')).map(l=>l.slice(5).trim()).join('\n');if(!data)continue;const value=JSON.parse(data);if(kind==='error')throw Error(value.error||'응답 스트림 오류');onEvent(kind,value);if(kind==='done')doneResult=value;}if(part.done)break;}if(!doneResult)throw Error('응답이 완료되기 전에 연결이 끊겼습니다. 다시 요청해 주세요.');return doneResult;}finally{reader.releaseLock();}
+};

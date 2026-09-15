@@ -9,3 +9,9 @@ workspace/
 
 .venv_spt/
 .pt_*/
+
+# Local report data, execution records, and private reference documents.
+outputs/
+reference_samples/
+docs/QA_FOLLOWUP.md
+docs/RESUME_*.md
