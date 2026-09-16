@@ -8,8 +8,9 @@ import time
 from pathlib import Path
 import llm_recovery
 import evidence_quality
+import runtime_structured_store
 
-VERSION = 13
+VERSION = 15
 
 
 def planning_templates(bases):
@@ -38,6 +39,10 @@ def obj(props):
 
 def prepare(app, llm, token_count, folder, name, evidence, manifest, outline, prompt, state, cancel_event, bases, fixed=False, report_context=None, previous_packet=None, fresh_ids=None):
     aliases={f'S{i+1}':s for i,s in enumerate(evidence)}
+    structured=runtime_structured_store.StructuredStore(app.BASE/'workspace'/'review_structured'/'numeric.sqlite',app.config()['model'])
+    grids,cached_tables=structured.register(aliases)
+    if previous_packet is not None:
+        grids={k:v for k,v in grids.items() if aliases[k]['id'] in (fresh_ids or set())}
     titles=[x['title'] for x in outline] if outline else [name]
     refs={'type':'array','minItems':1,'items':{'type':'string','enum':list(aliases)}}
     text={'type':'string'}
@@ -51,12 +56,13 @@ def prepare(app, llm, token_count, folder, name, evidence, manifest, outline, pr
                 'source_excerpts':{'type':'array','maxItems':4,'items':obj({'source_id':{'type':'string','enum':list(aliases)},'passages':{'type':'array','minItems':1,'maxItems':3,'items':{'type':'string','minLength':1,'maxLength':400}}})},
                 'tables':{'type':'array','maxItems':len(titles)*2 if outline else 6,'items':plan}})
     evidence_quality.extend_schema(schema,refs,obj)
+    runtime_structured_store.extend_schema(schema,aliases,obj)
     if any(re.search(r'\d',s['text']) for s in evidence):
         schema['properties']['numeric_evidence']['minItems']=1
     extractable=[k for k,s in aliases.items() if s.get('sheet') is None and not s.get('table_coverage')]
     schema['properties']['source_excerpts']['maxItems']=min(4,len(extractable))
     if extractable:schema['properties']['source_excerpts']['items']['properties']['source_id']['enum']=extractable
-    rules=RULES+"\n"+evidence_quality.RULES
+    rules=RULES+"\n"+evidence_quality.RULES+"\n"+runtime_structured_store.RULES
     if previous_packet is not None:
         rules+='\nprevious_assessment는 이 작업에서 원문 대조를 마친 직전 자료 검토 결과다. 처음부터 되풀이하지 말고 새 sources를 검토하여 부족·충돌 사항과 표 설계를 갱신한 전체 결과를 반환한다. 기존에 확인된 사실과 근거 ID는 보존하되 새 원문과 충돌하면 정정한다. 최종 표 작성에는 이전 원문과 새 원문 모두 전달되므로 새 sources에 이전 내용이 없다는 이유로 삭제하지 않는다.'
     rules+='\nreport_context가 있으면 전체 목차에서 이번 sections가 담당할 질문을 구별한다. 이후 다른 중분류에서 다룰 손익·재무구조·상환 지표를 이번 항목에 미리 몰아넣지 않는다. 기존에 사용한 표와 같은 내용을 반복하지 않는다. 기본 양식 목록은 선택 후보이며 전부 사용하라는 뜻이 아니다. 각 중분류의 핵심 표를 우선한다. 원문 발췌 후보에서 제외된 구조화 표는 모든 행을 그대로 전달하므로 source_excerpts에 다시 복사할 필요가 없다.'
@@ -71,8 +77,11 @@ def prepare(app, llm, token_count, folder, name, evidence, manifest, outline, pr
     if cancel_event and cancel_event.is_set():raise llm.GenerationCancelled()
     if cache.exists():
         packet=json.loads(cache.read_text(encoding='utf-8'))
+        packet['structured_sql']=structured.packet(aliases)
+        app.dump(folder/(name+'.structured.json'),{'version':runtime_structured_store.VERSION,'review':[],'preparation_cache_hit':True,'cached_source_count':len(cached_tables),'sql':packet['structured_sql']})
         app.dump(folder/(name+'.preparation.json'),{**packet,'cache_hit':True})
         return packet
+    if not grids:schema['properties']['structured_tables']['maxItems']=0
     if state:
         with app.lock:state['run'].update(stage=state['run'].get('stage',name)+' · 자료 검토',item_percent=20)
     previous=copy.deepcopy(previous_packet)
@@ -80,12 +89,16 @@ def prepare(app, llm, token_count, folder, name, evidence, manifest, outline, pr
         reverse={s['id']:k for k,s in aliases.items()}
         for item in previous.get('facts',[])+previous.get('tables',[])+previous.get('numeric_evidence',[]):item['source_ids']=[reverse[sid] for sid in item['source_ids']]
         for item in previous.get('source_excerpts',[]):item['source_id']=reverse[item['source_id']]
+        previous.pop('structured_sql',None)  # Fresh, source-scoped SQL cache is supplied below.
     messages=[{'role':'system','content':rules},{'role':'user','content':json.dumps({
         'sections':outline or titles,'report_context':report_context,'base_templates':planning_templates(bases),'documents':manifest,
         'previous_assessment':previous,
-        'sources':[{'id':k,'document_id':s['document_id'],'text':prompt_source_text(s)} for k,s in aliases.items() if previous_packet is None or s['id'] in (fresh_ids or set())]},ensure_ascii=False)}]
+        'structured_grids':runtime_structured_store.prompt_grids(grids,aliases),'cached_sql_tables':{alias:runtime_structured_store.compact({'facts':[{**r,'source_ids':[alias]} for r in rows]}) for alias,rows in cached_tables.items()},
+        'sources':[{'id':k,'document_id':s['document_id'],'text':s['text'] if k in grids and s.get('sheet') is not None else prompt_source_text(s)} for k,s in aliases.items() if previous_packet is None or s['id'] in (fresh_ids or set())]},ensure_ascii=False)}]
     request={'model':app.config()['model'],'messages':messages,'temperature':0.1,'max_tokens':5000,
              'chat_template_kwargs':{'enable_thinking':False},'structured_outputs':{'json':schema}}
+    budget=runtime_structured_store.budget_request(request,token_count)
+    app.dump(folder/(name+'.preparation.budget.json'),budget)
     started=time.monotonic()
     app.dump(folder/(name+'.preparation.request.json'),request)
     def progress(delta,text):
@@ -95,7 +108,10 @@ def prepare(app, llm, token_count, folder, name, evidence, manifest, outline, pr
     app.dump(folder/(name+'.preparation.response.json'),response)
     app.dump(folder/(name+'.preparation.timing.json'),{'elapsed_seconds':round(time.monotonic()-started,2),'usage':response.get('usage')})
     packet=json.loads(response['choices'][0]['message']['content'])
-    packet=evidence_quality.validate(packet,{k:{**s,'text':prompt_source_text(s)} for k,s in aliases.items()})
+    audit=structured.review(packet.pop('structured_tables',[]),aliases)
+    packet['structured_sql']=structured.packet(aliases)
+    app.dump(folder/(name+'.structured.json'),{'version':runtime_structured_store.VERSION,'review':audit,'cached_source_count':len(cached_tables),'sql':packet['structured_sql']})
+    packet=evidence_quality.validate(packet,{k:{**s,'text':prompt_source_text(s)+'\n'+s['text']} for k,s in aliases.items()})
     verified=[]
     for excerpt in packet.get('source_excerpts',[]):
         source=aliases.get(excerpt['source_id'])

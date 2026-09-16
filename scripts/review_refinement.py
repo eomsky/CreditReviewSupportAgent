@@ -6,6 +6,7 @@ import report_table_review
 import llm_recovery
 import semantic_table_review
 import prepared_context
+import runtime_structured_store
 import evidence_quality
 from review_prompt_rules import with_reasoning
 
@@ -223,6 +224,7 @@ def refine(app, llm, token_count, folder, key, memory, prompt, state, cancel_eve
     if report_table_review.missing(draft) and not draft.get('semantic_table_review'):
         system+='\n표 빈 셀 재검토 대상: '+json.dumps(report_table_review.missing(draft),ensure_ascii=False)+'\n새로 검색한 원문에서 각 항목·결산기·연결/별도·단위를 맞춰 확인한다. 표에 이미 값이 없다는 이유로 null을 유지하지 않는다. 당기순손익 등 동의 항목을 찾되 지배주주순이익과 당기순이익 등 다른 지표를 대체하지 않는다. 보완된 표 수치와 본문을 함께 일치시킨다.'
     system+='\n검토 수준 설정: '+level_rules[level]+' 모든 수준에서 신규 사실은 원문 근거가 필요하며, 추가할 근거가 없으면 추가량을 억지로 채우지 않는다. 삭제·전체 재작성 기준은 수준에 관계없이 동일하다.'
+    system+='\n'+runtime_structured_store.READ_RULES
     system=with_reasoning(system)+'\nquality_checks는 단위·산식, 기준 충돌, 미입력/실제0, 인과 판단 네 범주를 각각 한 번 점검한 결과다. 수정이 필요하면 revisions에 실제 수정하고 unresolved는 최종 문장에서 단정하지 말며 remaining_gaps에 판단 한계를 반영한다. arithmetic_checks의 결과는 산술만 확인한 것이며 comparison_basis의 회계적 타당성을 원문으로 다시 확인한다.'
     ids={}
     # Local aliases reduce repeated identifier tokens in every review view;

@@ -18,6 +18,7 @@ import fixed_review_tables
 import report_table_review
 import semantic_table_review
 import prepared_context
+import runtime_structured_store
 import review_refinement
 import sentence_analysis
 from review_prompt_rules import with_reasoning
@@ -255,6 +256,7 @@ def complete(run_dir, name, prompt, evidence, prior, report=False, manifest=None
       'source_ids는 실제 사용한 발췌 id만 배열로 반환한다. 본문에는 출처 괄호를 쓰지 않는다. '
       '계층이 필요할 때만 · → ☞ 최대 2단계로 작성한다. 승인·신용등급을 임의 결정하지 않는다. JSON만 반환한다.\n'+prompt+'\n최종 출력 규칙: 본문의 출처 괄호 대신 source_ids 필드에 원문 발췌 ID를 넣는다. · 항목마다 줄을 바꾼다.')
     system+='\n필수 자료마다 required_document_reviews를 작성하라. 관련 근거는 의견에 반영하고 실제 source_ids를 인용하라. 인용·반영했다면 reflected와 반영 내용을 쓰고, 사용하지 않았다면 not_used와 구체적인 사유(관련성, 기준시점, 발췌 부족 등)를 써라. 단순히 쓸모없음이라고 쓰거나 미반영 이유를 추측하지 마라. 자료를 억지로 기업 사실로 전환하지 마라.'
+    system+='\n'+runtime_structured_store.READ_RULES
     system = with_reasoning(system)
     document_metadata={d['id']:d for d in (manifest or [])}
     evidence = [{**s,'metadata':{**(s.get('metadata') or {}),**document_metadata.get(s['document_id'],{})}} for s in evidence]
@@ -265,6 +267,7 @@ def complete(run_dir, name, prompt, evidence, prior, report=False, manifest=None
     while True:
         aliases = {f'S{i+1}':s for i,s in enumerate(evidence)}
         context=review_refinement.remap_ids({k:v for k,v in packet.items() if k!='source_excerpts'},{s['id']:k for k,s in aliases.items()})
+        context['structured_sql']=runtime_structured_store.compact(context.get('structured_sql',{}))
         messages = [{'role':'system','content':system},{'role':'user','content':app.json.dumps({'prepared_context':context,'documents':manifest,'sources':[{'id':key,'document_id':s['document_id'],'page':s.get('page'),'text':prepared_context.source_text(s,packet),'selection_relevance':s.get('selection_relevance',0)} for key,s in aliases.items()],'prior_model_drafts':drafts},ensure_ascii=False)}]
         count, context_limit = token_count(messages)
         if count+output_budget+256 <= context_limit:
@@ -382,6 +385,7 @@ def worker(payload, run_id):
         if cancel_event.is_set():raise llm_stream.GenerationCancelled()
     folder = app.ROOT/run_id
     folder.mkdir()
+    app.dump(folder/'runtime-version.json',{'version':runtime_structured_store.VERSION,'evidence_mode':'vector_and_structured_sql','baseline':'6be6c8d','structured_rules_sha256':runtime_structured_store.digest(runtime_structured_store.RULES)})
     try:
         uploads = payload.get('documents', [])
         manifest = STORE.manifest(uploads)
@@ -488,6 +492,8 @@ class Handler(app.Handler):
         self.wfile.write(('event: '+kind+'\ndata: '+app.json.dumps(data,ensure_ascii=False)+'\n\n').encode());self.wfile.flush()
     def do_GET(self):
         path = urlsplit(self.path).path
+        if path=='/api/credit-review/v1/version':
+            return self.reply({'version':runtime_structured_store.VERSION,'evidence_mode':'vector_and_structured_sql','baseline':'6be6c8d / C20.46 reviewed candidate','validation':'runtime integration; end-to-end equivalence not yet verified'})
         if path=='/api/credit-review/v1/connection':
             return self.reply(connection_status())
         if path=='/api/credit-review/v1/events':

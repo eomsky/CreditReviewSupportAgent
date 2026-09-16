@@ -108,7 +108,10 @@ def validate(packet, sources):
 
 
 def context(packet):
-    return {k:packet.get(k,[]) for k in ('facts','conflicts','numeric_evidence','arithmetic_checks')}
+    from runtime_structured_store import compact
+    result={k:packet.get(k,[]) for k in ('facts','conflicts','numeric_evidence','arithmetic_checks')}
+    result['structured_sql']=compact(packet.get('structured_sql',{}))
+    return result
 
 
 def merge(packets):
@@ -122,4 +125,10 @@ def merge(packets):
                 for row in rows:row['operands']=[i+offset for i in row['operands']]
             result[key].extend(rows)
     if valid:result['quality_version']=VERSION
+    sql=[p.get('structured_sql',{}) for p in packets]
+    if any(sql):
+        unique={}
+        for item in sql:
+            for row in item.get('facts',[]):unique[(row['review_id'],row['cell'])]=row
+        result['structured_sql']={'retrieval':'parameterized_sql','facts':list(unique.values()),'fact_count':len(unique)}
     return result
